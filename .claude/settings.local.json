@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:api.mugenstream.fun)",
+      "Bash(flutter --version)",
+      "Bash(dart --version)",
+      "Bash(flutter create *)"
+    ]
+  }
+}
