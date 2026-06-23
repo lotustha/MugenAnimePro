@@ -177,6 +177,19 @@ class DetailView extends GetView<DetailController> {
                   ],
                 ),
               ),
+              IconButton(
+                tooltip: controller.notifyOn
+                    ? 'Reminder on'
+                    : 'Remind me when it airs',
+                onPressed: controller.toggleNotify,
+                icon: Icon(
+                  controller.notifyOn
+                      ? Icons.notifications_active
+                      : Icons.notifications_none,
+                  color:
+                      controller.notifyOn ? AppTheme.primary : Colors.white54,
+                ),
+              ),
             ],
           ),
         ),

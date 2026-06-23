@@ -13,6 +13,7 @@ class StorageService extends GetxService {
   static const _progressKey = 'watch_progress';
   static const _preferDubKey = 'prefer_dub';
   static const _watchedKey = 'watched_episodes';
+  static const _notifyKey = 'notify_anime';
 
   final GetStorage _box = GetStorage();
 
@@ -22,10 +23,16 @@ class StorageService extends GetxService {
   /// animeId -> set of watched episode numbers.
   final Map<String, Set<int>> _watched = {};
 
+  /// animeId -> {title, malId} for anime with episode reminders enabled.
+  /// Reactive so notify toggles update the UI instantly.
+  final RxMap<String, Map<String, String>> notifyAnime =
+      <String, Map<String, String>>{}.obs;
+
   Future<StorageService> init() async {
     _loadFavorites();
     _loadProgress();
     _loadWatched();
+    _loadNotify();
     return this;
   }
 
@@ -118,6 +125,35 @@ class StorageService extends GetxService {
         _watched.map((k, v) => MapEntry(k, v.toList())),
       );
     }
+  }
+
+  // ------------------------------------------------------- episode reminders
+  void _loadNotify() {
+    final raw = (_box.read(_notifyKey) as Map?) ?? const {};
+    raw.forEach((key, value) {
+      if (value is Map) {
+        notifyAnime['$key'] = {
+          'title': '${value['title'] ?? ''}',
+          'malId': '${value['malId'] ?? ''}',
+        };
+      }
+    });
+  }
+
+  bool isNotifyEnabled(String animeId) => notifyAnime.containsKey(animeId);
+
+  void setNotify(
+    String animeId, {
+    required bool enabled,
+    String title = '',
+    String malId = '',
+  }) {
+    if (enabled) {
+      notifyAnime[animeId] = {'title': title, 'malId': malId};
+    } else {
+      notifyAnime.remove(animeId);
+    }
+    _box.write(_notifyKey, Map<String, dynamic>.from(notifyAnime));
   }
 
   // -------------------------------------------------------------- preferences

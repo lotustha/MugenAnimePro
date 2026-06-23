@@ -10,4 +10,5 @@ abstract class Routes {
   static const search = '/search';
   static const category = '/category';
   static const history = '/history';
+  static const settings = '/settings';
 }

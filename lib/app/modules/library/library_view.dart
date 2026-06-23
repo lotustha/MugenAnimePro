@@ -23,6 +23,11 @@ class LibraryView extends StatelessWidget {
             icon: const Icon(Icons.history),
             onPressed: () => Get.toNamed(Routes.history),
           ),
+          IconButton(
+            tooltip: 'Settings',
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => Get.toNamed(Routes.settings),
+          ),
         ],
       ),
       body: Obx(() {

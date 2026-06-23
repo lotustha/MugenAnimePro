@@ -5,6 +5,8 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app/core/bindings/initial_binding.dart';
 import 'app/core/theme/app_theme.dart';
+import 'app/data/services/notification_service.dart';
+import 'app/data/services/remote_settings_service.dart';
 import 'app/data/services/storage_service.dart';
 import 'app/routes/app_pages.dart';
 
@@ -17,6 +19,8 @@ Future<void> main() async {
   // Local persistence.
   await GetStorage.init();
   await Get.putAsync<StorageService>(() => StorageService().init());
+  await Get.putAsync<NotificationService>(() => NotificationService().init());
+  await Get.putAsync<RemoteSettingsService>(() => RemoteSettingsService().init());
 
   runApp(const AnimeStreamApp());
 }

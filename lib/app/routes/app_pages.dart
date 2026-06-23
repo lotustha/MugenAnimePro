@@ -11,6 +11,8 @@ import '../modules/root/root_binding.dart';
 import '../modules/root/root_view.dart';
 import '../modules/search/search_binding.dart';
 import '../modules/search/search_view.dart';
+import '../modules/settings/settings_binding.dart';
+import '../modules/settings/settings_view.dart';
 import '../modules/watch/watch_binding.dart';
 import '../modules/watch/watch_view.dart';
 
@@ -61,6 +63,12 @@ class AppPages {
     GetPage(
       name: Routes.history,
       page: () => const HistoryView(),
+      transition: Transition.cupertino,
+    ),
+    GetPage(
+      name: Routes.settings,
+      page: () => const SettingsView(),
+      binding: SettingsBinding(),
       transition: Transition.cupertino,
     ),
   ];

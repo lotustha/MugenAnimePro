@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 
+import '../../data/services/notification_service.dart';
 import '../explore/explore_view.dart';
 import '../home/home_view.dart';
 import '../library/library_view.dart';
@@ -15,6 +17,15 @@ class RootView extends StatefulWidget {
 
 class _RootViewState extends State<RootView> {
   int _index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // Re-arm episode reminders with fresh airing times once the shell is up.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Get.find<NotificationService>().rescheduleAll();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {

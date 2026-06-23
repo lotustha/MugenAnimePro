@@ -8,6 +8,7 @@ import '../../data/models/next_airing.dart';
 import '../../data/models/watch_progress.dart';
 import '../../data/providers/anilist_client.dart';
 import '../../data/repositories/anime_repository.dart';
+import '../../data/services/notification_service.dart';
 import '../../data/services/storage_service.dart';
 import '../../routes/app_pages.dart';
 import '../watch/watch_args.dart';
@@ -16,6 +17,7 @@ class DetailController extends GetxController {
   final AnimeRepository _repo = Get.find();
   final StorageService _storage = Get.find();
   final AniListClient _aniList = Get.find();
+  final NotificationService _notifications = Get.find();
 
   late final String animeId;
 
@@ -66,16 +68,84 @@ class DetailController extends GetxController {
     if (next == null) return;
     nextAiring.value = next;
     _ticker ??= Timer.periodic(const Duration(minutes: 1), (_) => nowTick.value++);
+    // If reminders are already on for this anime, refresh to the latest time.
+    if (_storage.isNotifyEnabled(animeId)) {
+      _notifications.scheduleEpisode(
+        animeId: animeId,
+        title: result.title,
+        episode: next.episode,
+        airAt: next.airingAt,
+      );
+    }
+  }
+
+  /// Whether episode reminders are enabled for this anime (reactive).
+  bool get notifyOn => _storage.notifyAnime.containsKey(animeId);
+
+  /// Toggle "notify me when a new episode airs" for this anime (manual bell).
+  Future<void> toggleNotify() async {
+    final i = info.value;
+    if (i == null) return;
+    if (_storage.isNotifyEnabled(animeId)) {
+      await _disableNotify();
+      Get.snackbar('Reminders off', 'You won\'t be notified for ${i.title}');
+      return;
+    }
+    final granted = await _enableNotify(i);
+    if (!granted) {
+      Get.snackbar('Permission needed',
+          'Enable notifications in system settings to get reminders');
+      return;
+    }
+    final next = nextAiring.value;
+    Get.snackbar(
+      'Reminder set',
+      next != null
+          ? 'We\'ll alert you when E${next.episode} airs'
+          : 'We\'ll remind you when a new episode is scheduled',
+    );
+  }
+
+  /// Enable reminders for [i]. Returns false if permission was denied.
+  Future<bool> _enableNotify(AnimeInfo i) async {
+    final granted = await _notifications.requestPermission();
+    if (!granted) return false;
+    _storage.setNotify(animeId,
+        enabled: true, title: i.title, malId: i.malId ?? '');
+    final next = nextAiring.value;
+    if (next != null) {
+      await _notifications.scheduleEpisode(
+        animeId: animeId,
+        title: i.title,
+        episode: next.episode,
+        airAt: next.airingAt,
+      );
+    }
+    return true;
+  }
+
+  Future<void> _disableNotify() async {
+    _storage.setNotify(animeId, enabled: false);
+    await _notifications.cancel(animeId);
   }
 
   bool get isFavorite =>
       info.value != null && _storage.isFavorite(info.value!.id);
 
+  /// Toggle favorite. Favoriting also turns on episode reminders (and
+  /// un-favoriting turns them off) so the user is notified for everything in
+  /// their favorites.
   void toggleFavorite() {
     final i = info.value;
     if (i == null) return;
+    final wasFavorite = _storage.isFavorite(i.id);
     _storage.toggleFavorite(i.toAnime());
     info.refresh();
+    if (wasFavorite) {
+      _disableNotify();
+    } else {
+      _enableNotify(i);
+    }
   }
 
   WatchProgress? get progress => _storage.progressFor(animeId);

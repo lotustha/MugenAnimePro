@@ -10,12 +10,14 @@ import '../../data/models/episode.dart';
 import '../../data/models/watch_progress.dart';
 import '../../data/models/watch_response.dart';
 import '../../data/repositories/anime_repository.dart';
+import '../../data/services/notification_service.dart';
 import '../../data/services/storage_service.dart';
 import 'watch_args.dart';
 
 class WatchController extends GetxController {
   final AnimeRepository _repo = Get.find();
   final StorageService _storage = Get.find();
+  final NotificationService _notifications = Get.find();
 
   late final Anime anime;
   late final List<Episode> episodes;
@@ -62,6 +64,9 @@ class WatchController extends GetxController {
 
     // Keep the screen on while in the player.
     WakelockPlus.enable();
+
+    // Don't let episode reminders pop over the video while watching.
+    _notifications.suppress();
 
     webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
@@ -251,6 +256,8 @@ class WatchController extends GetxController {
   @override
   void onClose() {
     WakelockPlus.disable();
+    // Re-arm episode reminders now that the user has stopped watching.
+    _notifications.resume();
     // Make sure we never leave the rest of the app stuck in landscape /
     // immersive mode if the user backs out mid-fullscreen.
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
