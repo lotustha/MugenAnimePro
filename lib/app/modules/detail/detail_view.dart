@@ -33,6 +33,7 @@ class DetailView extends GetView<DetailController> {
             _appBar(context, info),
             SliverToBoxAdapter(child: _header(info)),
             SliverToBoxAdapter(child: _actions(context, info)),
+            SliverToBoxAdapter(child: _nextEpisode()),
             SliverToBoxAdapter(child: _meta(info)),
             if (info.relations.isNotEmpty)
               SliverToBoxAdapter(child: _rail('Related', info.relations)),
@@ -134,6 +135,63 @@ class DetailView extends GetView<DetailController> {
         ],
       ),
     );
+  }
+
+  /// Live countdown to the next airing episode (currently-airing anime only).
+  Widget _nextEpisode() {
+    return Obx(() {
+      controller.nowTick.value; // re-tick the countdown each minute
+      final next = controller.nextAiring.value;
+      if (next == null) return const SizedBox.shrink();
+      final left = next.timeUntil();
+      if (left.isNegative) return const SizedBox.shrink();
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppTheme.surfaceVariant,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.schedule, size: 20, color: AppTheme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('NEXT EPISODE',
+                        style: TextStyle(
+                          color: AppTheme.primary,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.6,
+                        )),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Episode ${next.episode} • in ${_formatCountdown(left)}',
+                      style: const TextStyle(
+                          fontSize: 14, fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
+  /// Compact remaining-time label, e.g. `3d 12h`, `12h 40m`, `40m`.
+  static String _formatCountdown(Duration d) {
+    final days = d.inDays;
+    final hours = d.inHours % 24;
+    final mins = d.inMinutes % 60;
+    if (days > 0) return '${days}d ${hours}h';
+    if (hours > 0) return '${hours}h ${mins}m';
+    return '${mins}m';
   }
 
   Widget _meta(AnimeInfo info) {

@@ -1,5 +1,6 @@
 import 'package:get/get.dart';
 
+import '../../data/providers/anilist_client.dart';
 import '../../data/providers/api_client.dart';
 import '../../data/repositories/anime_repository.dart';
 
@@ -9,5 +10,6 @@ class InitialBinding extends Bindings {
   void dependencies() {
     Get.put<ApiClient>(ApiClient(), permanent: true);
     Get.put<AnimeRepository>(AnimeRepository(Get.find()), permanent: true);
+    Get.put<AniListClient>(AniListClient(), permanent: true);
   }
 }
