@@ -12,15 +12,20 @@ class StorageService extends GetxService {
   static const _favoritesKey = 'favorites';
   static const _progressKey = 'watch_progress';
   static const _preferDubKey = 'prefer_dub';
+  static const _watchedKey = 'watched_episodes';
 
   final GetStorage _box = GetStorage();
 
   final RxList<Anime> favorites = <Anime>[].obs;
   final RxList<WatchProgress> continueWatching = <WatchProgress>[].obs;
 
+  /// animeId -> set of watched episode numbers.
+  final Map<String, Set<int>> _watched = {};
+
   Future<StorageService> init() async {
     _loadFavorites();
     _loadProgress();
+    _loadWatched();
     return this;
   }
 
@@ -87,6 +92,32 @@ class StorageService extends GetxService {
 
   void _persistProgress() {
     _box.write(_progressKey, continueWatching.map((p) => p.toJson()).toList());
+  }
+
+  // ----------------------------------------------------------- watched episodes
+  void _loadWatched() {
+    final raw = (_box.read(_watchedKey) as Map?) ?? const {};
+    raw.forEach((key, value) {
+      final nums = (value as List?)
+              ?.map((e) => (e as num).toInt())
+              .toSet() ??
+          <int>{};
+      _watched['$key'] = nums;
+    });
+  }
+
+  /// Episode numbers already watched for [animeId].
+  Set<int> watchedEpisodeNumbers(String animeId) =>
+      Set<int>.from(_watched[animeId] ?? const <int>{});
+
+  void markEpisodeWatched(String animeId, int number) {
+    final set = _watched.putIfAbsent(animeId, () => <int>{});
+    if (set.add(number)) {
+      _box.write(
+        _watchedKey,
+        _watched.map((k, v) => MapEntry(k, v.toList())),
+      );
+    }
   }
 
   // -------------------------------------------------------------- preferences

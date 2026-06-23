@@ -70,6 +70,17 @@ class WatchServer {
     );
   }
 
+  /// Compact label for the server chip: drops the `Anizen ` provider prefix
+  /// and the trailing `(HardSub)` / `(Dub)` qualifier, since audio is chosen
+  /// separately. e.g. `Anizen VidCloud-1 (HardSub)` -> `VidCloud-1`.
+  String get displayName {
+    var n = name
+        .replaceFirst(RegExp(r'^anizen\s+', caseSensitive: false), '')
+        .replaceFirst(RegExp(r'\s*\([^)]*\)\s*$'), '')
+        .trim();
+    return n.isEmpty ? name : n;
+  }
+
   /// First HLS (.m3u8) source, if any. Sources of `type:iframe` are skipped
   /// because they are not directly playable by media_kit.
   StreamSource? get hlsSource {

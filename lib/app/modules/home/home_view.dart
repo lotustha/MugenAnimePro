@@ -7,6 +7,7 @@ import '../../data/services/storage_service.dart';
 import '../../routes/app_pages.dart';
 import '../../widgets/anime_card.dart';
 import '../../widgets/continue_watching_rail.dart';
+import '../../widgets/resume_card.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/state_views.dart';
 import 'home_controller.dart';
@@ -29,7 +30,8 @@ class HomeView extends GetView<HomeController> {
           ),
         ],
       ),
-      floatingActionButton: _continueButton(),
+      floatingActionButton: _resumeBar(),
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
       body: Obx(() {
         if (controller.loading.value) return const LoadingView();
         if (controller.error.value != null) {
@@ -58,23 +60,17 @@ class HomeView extends GetView<HomeController> {
     );
   }
 
-  /// Floating "Continue" button that resumes the last-watched episode.
-  Widget _continueButton() {
+  /// Floating resume bar that continues the last-watched episode.
+  Widget _resumeBar() {
     final storage = Get.find<StorageService>();
     return Obx(() {
       storage.continueWatching.length; // react to progress changes
       final p = controller.lastWatched;
       if (p == null) return const SizedBox.shrink();
-      return FloatingActionButton.extended(
-        onPressed: controller.resuming.value ? null : controller.continuePlaying,
-        icon: controller.resuming.value
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-              )
-            : const Icon(Icons.play_arrow),
-        label: Text('Continue E${p.episodeNumber}'),
+      return ResumeCard(
+        progress: p,
+        busy: controller.resuming.value,
+        onTap: controller.continuePlaying,
       );
     });
   }

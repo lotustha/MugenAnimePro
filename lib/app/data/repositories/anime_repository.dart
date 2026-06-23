@@ -44,8 +44,13 @@ class AnimeRepository {
     return AnimeInfo.fromJson(json);
   }
 
-  Future<WatchResponse> watch(String episodeId) async {
-    final json = await _client.getObject(ApiConstants.watch(episodeId));
+  /// Streaming sources for an episode. [dub] selects the dubbed audio track
+  /// (`?type=dub`); otherwise the subtitled track (`?type=sub`) is returned.
+  Future<WatchResponse> watch(String episodeId, {bool dub = false}) async {
+    final json = await _client.getObject(
+      ApiConstants.watch(episodeId),
+      query: {'type': dub ? 'dub' : 'sub'},
+    );
     return WatchResponse.fromJson(json);
   }
 

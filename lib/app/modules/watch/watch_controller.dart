@@ -1,7 +1,9 @@
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../data/models/anime.dart';
 import '../../data/models/episode.dart';
@@ -36,8 +38,18 @@ class WatchController extends GetxController {
   /// false = SUB, true = DUB.
   final RxBool dubSelected = false.obs;
 
+  /// Episode numbers the user has already opened, for the watched indicator.
+  final RxSet<int> watchedEpisodes = <int>{}.obs;
+
   /// Host of the currently embedded player; used to block ad redirects.
   String? _embedHost;
+
+  /// The native fullscreen video view surfaced by the WebView (HTML5
+  /// fullscreen). Non-null while a video is playing fullscreen.
+  final Rxn<Widget> fullscreenWidget = Rxn<Widget>();
+
+  /// Callback handed to us by the WebView to dismiss the fullscreen view.
+  void Function()? _exitFullscreen;
 
   @override
   void onInit() {
@@ -46,6 +58,7 @@ class WatchController extends GetxController {
     anime = args.anime;
     episodes = args.episodes;
     dubSelected.value = args.preferDub;
+    watchedEpisodes.addAll(_storage.watchedEpisodeNumbers(anime.id));
 
     // Keep the screen on while in the player.
     WakelockPlus.enable();
@@ -73,7 +86,44 @@ class WatchController extends GetxController {
         ),
       );
 
+    // Allow the embedded video to autoplay WITH sound. Android WebView blocks
+    // media playback until a user gesture by default, which starts it muted.
+    final platform = webViewController.platform;
+    if (platform is AndroidWebViewController) {
+      platform.setMediaPlaybackRequiresUserGesture(false);
+      // When a video enters HTML5 fullscreen, the WebView hands us a native
+      // view to display edge-to-edge. Rotate to landscape while it's shown
+      // and restore portrait when the user exits.
+      platform.setCustomWidgetCallbacks(
+        onShowCustomWidget: (widget, onHide) {
+          _exitFullscreen = onHide;
+          fullscreenWidget.value = widget;
+          SystemChrome.setPreferredOrientations(const [
+            DeviceOrientation.landscapeLeft,
+            DeviceOrientation.landscapeRight,
+          ]);
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+        },
+        onHideCustomWidget: () {
+          _exitFullscreen = null;
+          fullscreenWidget.value = null;
+          SystemChrome.setPreferredOrientations(const [
+            DeviceOrientation.portraitUp,
+          ]);
+          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+        },
+      );
+    }
+
     _loadEpisode(args.startEpisode);
+  }
+
+  /// Exit fullscreen video (driven by the Android back button).
+  bool exitFullscreen() {
+    final exit = _exitFullscreen;
+    if (exit == null) return false;
+    exit();
+    return true;
   }
 
   /// Block top-level navigations away from the player host (ad pop-ups /
@@ -91,6 +141,10 @@ class WatchController extends GetxController {
     }
     return NavigationDecision.prevent;
   }
+
+  /// Whether the current episode offers a subtitled / dubbed track.
+  bool get subAvailable => current.value?.isSubbed ?? true;
+  bool get dubAvailable => current.value?.isDubbed ?? false;
 
   int get _currentIndex {
     final c = current.value;
@@ -122,6 +176,9 @@ class WatchController extends GetxController {
 
   void setDub(bool value) {
     if (dubSelected.value == value) return;
+    // Ignore a switch to a track this episode doesn't provide.
+    if (value && !dubAvailable) return;
+    if (!value && !subAvailable) return;
     dubSelected.value = value;
     _storage.preferDub = value;
     final ep = current.value;
@@ -133,8 +190,12 @@ class WatchController extends GetxController {
     error.value = null;
     current.value = ep;
     servers.clear();
+    // Constrain the requested audio to what this episode actually offers,
+    // and keep the toggle in sync with the resolved choice.
+    final wantDub = (dubSelected.value && ep.isDubbed) || !ep.isSubbed;
+    dubSelected.value = wantDub && ep.isDubbed;
     try {
-      final watch = await _repo.watch(ep.id);
+      final watch = await _repo.watch(ep.id, dub: dubSelected.value);
       final playable =
           watch.servers.where((s) => s.embedUrl != null).toList();
       if (playable.isEmpty) {
@@ -144,6 +205,8 @@ class WatchController extends GetxController {
       selectedServer.value = 0;
       loading.value = false;
       _saveProgress(ep);
+      _storage.markEpisodeWatched(anime.id, ep.number);
+      watchedEpisodes.add(ep.number);
       _loadEmbed(playable.first);
     } catch (e) {
       error.value = '$e';
@@ -188,6 +251,10 @@ class WatchController extends GetxController {
   @override
   void onClose() {
     WakelockPlus.disable();
+    // Make sure we never leave the rest of the app stuck in landscape /
+    // immersive mode if the user backs out mid-fullscreen.
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.onClose();
   }
 }
