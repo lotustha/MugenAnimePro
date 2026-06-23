@@ -29,6 +29,7 @@ class HomeView extends GetView<HomeController> {
           ),
         ],
       ),
+      floatingActionButton: _continueButton(),
       body: Obx(() {
         if (controller.loading.value) return const LoadingView();
         if (controller.error.value != null) {
@@ -55,6 +56,27 @@ class HomeView extends GetView<HomeController> {
         );
       }),
     );
+  }
+
+  /// Floating "Continue" button that resumes the last-watched episode.
+  Widget _continueButton() {
+    final storage = Get.find<StorageService>();
+    return Obx(() {
+      storage.continueWatching.length; // react to progress changes
+      final p = controller.lastWatched;
+      if (p == null) return const SizedBox.shrink();
+      return FloatingActionButton.extended(
+        onPressed: controller.resuming.value ? null : controller.continuePlaying,
+        icon: controller.resuming.value
+            ? const SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+              )
+            : const Icon(Icons.play_arrow),
+        label: Text('Continue E${p.episodeNumber}'),
+      );
+    });
   }
 
   Widget _continueWatching() {

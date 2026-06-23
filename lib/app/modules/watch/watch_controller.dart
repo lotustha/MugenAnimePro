@@ -1,9 +1,11 @@
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../data/models/anime.dart';
 import '../../data/models/episode.dart';
+import '../../data/models/watch_progress.dart';
 import '../../data/models/watch_response.dart';
 import '../../data/repositories/anime_repository.dart';
 import '../../data/services/storage_service.dart';
@@ -34,6 +36,9 @@ class WatchController extends GetxController {
   /// false = SUB, true = DUB.
   final RxBool dubSelected = false.obs;
 
+  /// Host of the currently embedded player; used to block ad redirects.
+  String? _embedHost;
+
   @override
   void onInit() {
     super.onInit();
@@ -42,11 +47,19 @@ class WatchController extends GetxController {
     episodes = args.episodes;
     dubSelected.value = args.preferDub;
 
+    // Keep the screen on while in the player.
+    WakelockPlus.enable();
+
     webViewController = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..setBackgroundColor(const Color(0xFF000000))
+      // Swallow popup-style JS dialogs that ad scripts spam.
+      ..setOnJavaScriptAlertDialog((_) async {})
+      ..setOnJavaScriptConfirmDialog((_) async => false)
+      ..setOnJavaScriptTextInputDialog((_) async => '')
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: _onNavigation,
           onPageStarted: (_) => playerLoading.value = true,
           onPageFinished: (_) => playerLoading.value = false,
           onWebResourceError: (e) {
@@ -61,6 +74,22 @@ class WatchController extends GetxController {
       );
 
     _loadEpisode(args.startEpisode);
+  }
+
+  /// Block top-level navigations away from the player host (ad pop-ups /
+  /// redirects) while allowing the player's own sub-resources to load.
+  NavigationDecision _onNavigation(NavigationRequest request) {
+    if (!request.isMainFrame) return NavigationDecision.navigate;
+    final host = Uri.tryParse(request.url)?.host ?? '';
+    final embed = _embedHost;
+    if (embed == null ||
+        host.isEmpty ||
+        host == embed ||
+        host.endsWith('.$embed') ||
+        embed.endsWith('.$host')) {
+      return NavigationDecision.navigate;
+    }
+    return NavigationDecision.prevent;
   }
 
   int get _currentIndex {
@@ -114,6 +143,7 @@ class WatchController extends GetxController {
       servers.assignAll(playable);
       selectedServer.value = 0;
       loading.value = false;
+      _saveProgress(ep);
       _loadEmbed(playable.first);
     } catch (e) {
       error.value = '$e';
@@ -124,6 +154,7 @@ class WatchController extends GetxController {
   void _loadEmbed(WatchServer server) {
     final url = server.embedUrl;
     if (url == null) return;
+    _embedHost = Uri.tryParse(url)?.host;
     playerLoading.value = true;
     webViewController.loadRequest(
       Uri.parse(url),
@@ -131,8 +162,32 @@ class WatchController extends GetxController {
     );
   }
 
+  /// Record the episode for "continue watching". The iframe player is
+  /// cross-origin, so an exact position is unavailable — we track at
+  /// episode granularity so the series can be resumed at the right episode.
+  void _saveProgress(Episode ep) {
+    final existing = _storage.progressFor(anime.id);
+    _storage.saveProgress(WatchProgress(
+      anime: anime,
+      episodeId: ep.id,
+      episodeNumber: ep.number,
+      // Preserve any prior position if resuming the same episode, else 0.
+      positionMs:
+          (existing != null && existing.episodeId == ep.id) ? existing.positionMs : 0,
+      durationMs:
+          (existing != null && existing.episodeId == ep.id) ? existing.durationMs : 0,
+      updatedAt: DateTime.now().millisecondsSinceEpoch,
+    ));
+  }
+
   void retry() {
     final ep = current.value;
     if (ep != null) _loadEpisode(ep);
+  }
+
+  @override
+  void onClose() {
+    WakelockPlus.disable();
+    super.onClose();
   }
 }

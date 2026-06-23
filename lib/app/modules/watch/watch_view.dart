@@ -198,13 +198,12 @@ class WatchView extends GetView<WatchController> {
   }
 
   Widget _episodesHeader() {
-    return Obx(() {
-      final count = controller.episodes.length;
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-        child: Text('Episodes ($count)', style: _sectionStyle),
-      );
-    });
+    // episodes is a fixed list (not reactive) — no Obx needed.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text('Episodes (${controller.episodes.length})',
+          style: _sectionStyle),
+    );
   }
 
   Widget _episodeList() {
