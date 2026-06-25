@@ -1,11 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../data/models/anime.dart';
 import '../../data/models/episode.dart';
@@ -24,7 +24,8 @@ class WatchController extends GetxController {
   late final Anime anime;
   late final List<Episode> episodes;
 
-  late final WebViewController webViewController;
+  /// Set once the InAppWebView is created (see [onWebViewCreated]).
+  InAppWebViewController? _web;
 
   /// Whether the watch metadata (server list) is being fetched.
   final RxBool loading = true.obs;
@@ -34,6 +35,10 @@ class WatchController extends GetxController {
   final RxnString error = RxnString();
 
   final Rx<Episode?> current = Rx<Episode?>(null);
+
+  /// True while the embed's HTML5 video is in fullscreen (inappwebview shows it
+  /// natively; we only flip orientation/system UI here).
+  final RxBool isFullscreen = false.obs;
 
   /// Servers for the CURRENTLY SELECTED language (filtered view shown as chips).
   final RxList<WatchServer> servers = <WatchServer>[].obs;
@@ -52,6 +57,7 @@ class WatchController extends GetxController {
   /// Episode-list search query + sort order. For long series (e.g. One Piece's
   /// 1167 episodes) these let the user jump to an episode and flip the order.
   final RxString episodeQuery = ''.obs;
+
   /// Remembered across all anime via [StorageService.episodesAscending].
   final RxBool episodesAscending = true.obs;
   final ScrollController episodeScroll = ScrollController();
@@ -81,6 +87,7 @@ class WatchController extends GetxController {
     episodesAscending.value = !episodesAscending.value;
     _storage.episodesAscending = episodesAscending.value; // remember globally
   }
+
   void clearEpisodeQuery() {
     episodeSearchCtrl.clear();
     episodeQuery.value = '';
@@ -89,66 +96,103 @@ class WatchController extends GetxController {
   /// Host of the currently embedded player; used to block ad redirects.
   String? _embedHost;
 
+  /// Server queued to load before the WebView exists yet (onInit fetches and
+  /// picks a server before [onWebViewCreated] fires).
+  WatchServer? _pendingServer;
+
   /// Auto-failover: if the active server's page errors or never finishes
   /// loading within this window, advance to the next server for the episode.
-  /// (webview_flutter can only see page load failure/hangs — not whether the
-  /// video inside a cross-origin iframe actually started — so this covers
-  /// dead/blocked embeds, not a frame that loads then fails to play.)
   Timer? _loadTimeout;
   static const Duration _serverTimeout = Duration(seconds: 20);
 
-  /// The native fullscreen video view surfaced by the WebView (HTML5
-  /// fullscreen). Non-null while a video is playing fullscreen.
-  final Rxn<Widget> fullscreenWidget = Rxn<Widget>();
+  // ─── Ad blocking ───────────────────────────────────────────────────────────
 
-  /// Callback handed to us by the WebView to dismiss the fullscreen view.
-  void Function()? _exitFullscreen;
+  /// Network-level blocklist for known pop-ad / ad-network hosts. Because
+  /// flutter_inappwebview supports content blockers, these requests are dropped
+  /// before they load — the real fix plain webview_flutter couldn't do.
+  static const List<String> _adHostPatterns = [
+    // Throwaway TLDs used by the rotating banner/pop ad networks in these
+    // embeds. The ad hosts have random names that change every session, but
+    // they all sit on these cheap TLDs — and no legitimate video resource here
+    // uses them (the player/CDNs are .fun/.top/.buzz/ani.zip/thetvdb.com), so
+    // blocking the whole TLD is safe and survives the rotation.
+    r'\.cfd', r'\.cyou', r'\.sbs', r'\.shop', r'\.bond', r'\.quest', r'\.click',
+    // Stable ad hosts observed in the resource log / earlier analysis.
+    r'lacisaboma\.com', r'casteschagoma\.com', r'firevideoplayer\.com',
+    // Known pop-ad / ad networks (belt-and-suspenders).
+    r'popads', r'popcash', r'poptm', r'popunder',
+    r'propellerads', r'propu\.', r'pushwhy',
+    r'adsterra', r'hilltopads', r'onclicka', r'onclckbn',
+    r'monetag', r'clickadu', r'adnium', r'adskeeper',
+    r'highperformanceformat', r'profitabledisplay', r'effectivegate',
+    r'a-ads', r'adnxs', r'adservme', r'adsco\.re',
+  ];
 
-  /// Injected into every player page to suppress the free hosts' ads. Since
-  /// webview_flutter can't intercept network requests, this runs in-page.
-  ///
-  /// IMPORTANT: it must never touch the player. The video lives in a
-  /// cross-origin iframe, so the parent document can't see the <video> inside
-  /// it — any DOM-mutation heuristic that removes iframes or hides "big" boxes
-  /// ends up hiding the player itself (audio keeps playing, picture goes black).
-  /// So we only do non-destructive popup/redirect suppression here:
-  ///   - neutralise window.open / JS dialogs (pop-ups, "you won" alerts),
-  ///   - strip target="_blank" so ad links can't spawn new tabs,
-  ///   - widen the layout viewport so the player's own control bar (≈9 buttons
-  ///     + timecode) has room and stops overlapping in the narrow portrait
-  ///     WebView (the page is laid out at a virtual width, then scaled to fit).
-  /// and rely on the native navigation delegate + custom-widget callbacks to
-  /// keep the user on the player host. No iframe removal, no display:none.
+  static final List<ContentBlocker> adBlockers = [
+    for (final p in _adHostPatterns)
+      ContentBlocker(
+        trigger: ContentBlockerTrigger(urlFilter: '.*$p.*'),
+        action: ContentBlockerAction(type: ContentBlockerActionType.BLOCK),
+      ),
+  ];
+
+  /// Injected at document start into EVERY frame (forMainFrameOnly: false) — so
+  /// it also runs inside the cross-origin player/ad iframe that the previous
+  /// webview_flutter setup could never reach. Non-destructive: it neutralises
+  /// pop-ups and the FirePlayer/as-cdn ad handshake without touching the video.
   static const String _adBlockJs = r'''
 (function(){
   if(window.__mab) return; window.__mab=1;
   try{
     window.open=function(){return null;};
     window.alert=function(){};window.confirm=function(){return false;};window.prompt=function(){return null;};
-    // Ad scripts use Notification permission prompts for spam — auto-deny.
     try{ if(window.Notification){ window.Notification.requestPermission=function(){ return Promise.resolve('denied'); }; } }catch(e){}
-    function fixViewport(){
-      try{
-        var vp=document.querySelector('meta[name="viewport"]');
-        if(!vp){vp=document.createElement('meta');vp.setAttribute('name','viewport');(document.head||document.documentElement).appendChild(vp);}
-        var want='width=600, user-scalable=no';
-        if(vp.getAttribute('content')!==want) vp.setAttribute('content',want);
-      }catch(e){}
-    }
-    function strip(){
-      try{
-        [].forEach.call(document.querySelectorAll('a[target="_blank"]'),function(a){ a.removeAttribute('target'); });
-        // Surgically drop the FirePlayer / as-cdn pop-under overlay: ".pppx" is a
-        // transparent full-screen click-sink that pop-opens an ad on the first
-        // tap. It is an ad-only class (never the player), so removing it both
-        // kills the pop and lets the first tap reach the real play button.
-        [].forEach.call(document.querySelectorAll('.pppx'),function(el){ el.remove(); });
-      }catch(e){}
-    }
+    // Refuse the as-cdn / FirePlayer pop-ad handshake: decline instead of granting.
+    try{
+      window.addEventListener('message',function(e){
+        var d=e&&e.data; var t=(typeof d==='string')?d:(d&&d.action);
+        if(t==='as_request_ad_permission'){ try{(e.source||window).postMessage('no_ads','*');}catch(_){} }
+      },true);
+    }catch(e){}
+    var TOP=(window.top===window);
+    function fixViewport(){ if(!TOP) return; try{
+      var vp=document.querySelector('meta[name="viewport"]');
+      if(!vp){vp=document.createElement('meta');vp.setAttribute('name','viewport');(document.head||document.documentElement).appendChild(vp);}
+      var want='width=600, user-scalable=no';
+      if(vp.getAttribute('content')!==want) vp.setAttribute('content',want);
+    }catch(e){} }
+    function strip(){ try{
+      [].forEach.call(document.querySelectorAll('a[target="_blank"]'),function(a){ a.removeAttribute('target'); });
+      // FirePlayer/as-cdn transparent first-tap pop-under overlay (ad-only class).
+      [].forEach.call(document.querySelectorAll('.pppx'),function(el){ el.remove(); });
+    }catch(e){} }
     fixViewport(); strip(); setInterval(function(){fixViewport();strip();},1000);
   }catch(e){}
 })();
 ''';
+
+  InAppWebViewSettings get webSettings => InAppWebViewSettings(
+        mediaPlaybackRequiresUserGesture: false, // autoplay with sound
+        allowsInlineMediaPlayback: true,
+        javaScriptEnabled: true,
+        javaScriptCanOpenWindowsAutomatically: false,
+        supportMultipleWindows: false, // popups never spawn a second window
+        useShouldOverrideUrlLoading: true,
+        useOnLoadResource: false,
+        transparentBackground: false,
+        iframeAllowFullscreen: true,
+        useHybridComposition: true,
+        contentBlockers: adBlockers,
+      );
+
+  UnmodifiableListView<UserScript> get userScripts =>
+      UnmodifiableListView<UserScript>([
+        UserScript(
+          source: _adBlockJs,
+          injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          forMainFrameOnly: false,
+        ),
+      ]);
 
   @override
   void onInit() {
@@ -162,102 +206,102 @@ class WatchController extends GetxController {
     watchedEpisodes.addAll(_storage.watchedEpisodeNumbers(anime.id));
     episodesAscending.value = _storage.episodesAscending; // remembered globally
 
-    // Keep the screen on while in the player.
-    WakelockPlus.enable();
-
-    // Don't let episode reminders pop over the video while watching.
-    _notifications.suppress();
-
-    webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF000000))
-      // Swallow popup-style JS dialogs that ad scripts spam.
-      ..setOnJavaScriptAlertDialog((_) async {})
-      ..setOnJavaScriptConfirmDialog((_) async => false)
-      ..setOnJavaScriptTextInputDialog((_) async => '')
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: _onNavigation,
-          onPageStarted: (_) {
-            playerLoading.value = true;
-            webViewController.runJavaScript(_adBlockJs);
-          },
-          onPageFinished: (url) {
-            playerLoading.value = false;
-            // The real embed loaded — cancel the failover timer (the blank
-            // reset page also fires this, so only the real URL counts).
-            if (url != 'about:blank') _loadTimeout?.cancel();
-            webViewController.runJavaScript(_adBlockJs);
-          },
-          onWebResourceError: (e) {
-            if (e.isForMainFrame ?? false) _onServerFailed();
-          },
-        ),
-      );
-
-    // Allow the embedded video to autoplay WITH sound.
-    final platform = webViewController.platform;
-    if (platform is AndroidWebViewController) {
-      platform.setMediaPlaybackRequiresUserGesture(false);
-      platform.setCustomWidgetCallbacks(
-        onShowCustomWidget: (widget, onHide) {
-          _exitFullscreen = onHide;
-          fullscreenWidget.value = widget;
-          SystemChrome.setPreferredOrientations(const [
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]);
-          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        },
-        onHideCustomWidget: () {
-          _exitFullscreen = null;
-          fullscreenWidget.value = null;
-          SystemChrome.setPreferredOrientations(const [
-            DeviceOrientation.portraitUp,
-          ]);
-          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-        },
-      );
-    }
+    WakelockPlus.enable(); // keep the screen on while watching
+    _notifications.suppress(); // no reminders popping over the video
 
     _loadEpisode(args.startEpisode);
   }
 
-  /// Exit fullscreen video (driven by the Android back button).
-  bool exitFullscreen() {
-    final exit = _exitFullscreen;
-    if (exit == null) return false;
-    exit();
-    return true;
+  // ─── InAppWebView callbacks (wired from the view) ───────────────────────────
+
+  void onWebViewCreated(InAppWebViewController c) {
+    _web = c;
+    final pending = _pendingServer;
+    _pendingServer = null;
+    if (pending != null) _loadEmbed(pending);
   }
 
+  void onLoadStart(WebUri? url) {
+    playerLoading.value = true;
+  }
+
+  void onLoadStop(WebUri? url) {
+    playerLoading.value = false;
+    // The real embed loaded — cancel the failover timer (the blank reset page
+    // also fires this, so only the real URL counts).
+    if (url != null && url.toString() != 'about:blank') _loadTimeout?.cancel();
+  }
+
+  void onMainFrameError() => _onServerFailed();
+
   /// Block top-level navigations away from the player host (ad pop-ups /
-  /// redirects) while allowing the player's own sub-resources to load.
-  NavigationDecision _onNavigation(NavigationRequest request) {
-    if (!request.isMainFrame) return NavigationDecision.navigate;
-    // Our own reset between embeds.
-    if (request.url == 'about:blank') return NavigationDecision.navigate;
-    final uri = Uri.tryParse(request.url);
-    final scheme = uri?.scheme ?? '';
-    // Block app-launch / store-redirect ads (intent://, market://, tg://,
-    // whatsapp://, …) that try to kick the user out of the player.
+  /// redirects) while allowing the player's own sub-frame resources.
+  Future<NavigationActionPolicy> shouldOverride(
+      WebUri? url, bool isMainFrame) async {
+    if (!isMainFrame || url == null) return NavigationActionPolicy.ALLOW;
+    final s = url.toString();
+    if (s == 'about:blank') return NavigationActionPolicy.ALLOW;
+    final scheme = url.scheme;
+    // Block app-launch / store-redirect ads (intent://, market://, tg://, …).
     if (scheme != 'http' && scheme != 'https') {
-      return NavigationDecision.prevent;
+      return NavigationActionPolicy.CANCEL;
     }
-    final host = uri?.host ?? '';
+    final host = url.host;
     final embed = _embedHost;
     if (embed == null ||
         host.isEmpty ||
         host == embed ||
         host.endsWith('.$embed') ||
         embed.endsWith('.$host')) {
-      return NavigationDecision.navigate;
+      return NavigationActionPolicy.ALLOW;
     }
-    return NavigationDecision.prevent;
+    return NavigationActionPolicy.CANCEL;
   }
 
-  /// Pick the language to show: keep the current one if still available, else
-  /// the stored preference, else japanese → english → first available.
+  /// Never let a page open a new window/tab — pop-ups and pop-unders die here.
+  Future<bool> onCreateWindow() async => false;
+
+  /// Deny ad-driven permission prompts (camera/mic/notification/geo) but GRANT
+  /// protected-media / MIDI so any DRM embed still plays (a blanket deny would
+  /// black the video).
+  Future<PermissionResponse> onPermissionRequest(
+      List<PermissionResourceType> resources) async {
+    final keep = resources.contains(PermissionResourceType.PROTECTED_MEDIA_ID) ||
+        resources.contains(PermissionResourceType.MIDI_SYSEX);
+    return PermissionResponse(
+      resources: resources,
+      action: keep
+          ? PermissionResponseAction.GRANT
+          : PermissionResponseAction.DENY,
+    );
+  }
+
+  void onEnterFullscreen() {
+    isFullscreen.value = true;
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  void onExitFullscreen() {
+    isFullscreen.value = false;
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  /// Exit HTML5 fullscreen (driven by the Android back button). Returns true if
+  /// it handled the back press.
+  bool exitFullscreen() {
+    if (!isFullscreen.value) return false;
+    _web?.evaluateJavascript(
+        source: 'try{document.exitFullscreen&&document.exitFullscreen();}catch(e){}');
+    return true;
+  }
+
+  // ─── Language / server selection ────────────────────────────────────────────
+
   void _resolveSelectedLanguage() {
     final avail = availableLanguages;
     if (avail.isEmpty) return;
@@ -275,7 +319,6 @@ class WatchController extends GetxController {
                 : avail.first;
   }
 
-  /// Filter [_allServers] down to the selected language's servers.
   void _applyLanguageFilter() {
     final lang = selectedLanguage.value;
     var list = _allServers.where((s) => s.lang == lang).toList();
@@ -284,7 +327,6 @@ class WatchController extends GetxController {
     selectedServer.value = 0;
   }
 
-  /// Switch audio language (no refetch — all languages are already loaded).
   void setLanguage(String lang) {
     if (selectedLanguage.value == lang) return;
     selectedLanguage.value = lang;
@@ -325,20 +367,18 @@ class WatchController extends GetxController {
     _playServer(index);
   }
 
-  /// Select [index] as the active server and load its embed.
   void _playServer(int index) {
     selectedServer.value = index;
     _loadEmbed(servers[index]);
   }
 
-  /// The active server failed — its page errored or never finished loading.
-  /// Fall back to the next server for this episode, or surface an error once
+  /// The active server failed — fall back to the next, or surface an error once
   /// every server has been tried.
   void _onServerFailed({bool timedOut = false}) {
     _loadTimeout?.cancel();
     final failedIndex = selectedServer.value;
     final next = failedIndex + 1;
-    if (next < servers.length) {
+    if (next >= 0 && next < servers.length && failedIndex < servers.length) {
       final from = servers[failedIndex].displayName;
       final to = servers[next].displayName;
       _playServer(next);
@@ -389,16 +429,21 @@ class WatchController extends GetxController {
     error.value = null;
     playerLoading.value = true;
     _loadTimeout?.cancel();
-    // Reset the WebView before loading the new player so the previous <video>'s
-    // surface is released (otherwise the new stream can render black on switch).
-    webViewController.loadRequest(Uri.parse('about:blank'));
+    final web = _web;
+    if (web == null) {
+      _pendingServer = server; // load once the WebView is created
+      return;
+    }
+    // Reset before loading so the previous <video>'s surface is released.
+    web.loadUrl(urlRequest: URLRequest(url: WebUri('about:blank')));
     Future.delayed(const Duration(milliseconds: 150), () {
-      // Arm the failover timer only for the real embed (not the blank reset);
-      // onPageFinished for the real URL cancels it.
       _loadTimeout = Timer(_serverTimeout, () {
         if (playerLoading.value) _onServerFailed(timedOut: true);
       });
-      webViewController.loadRequest(Uri.parse(url), headers: server.headers);
+      web.loadUrl(urlRequest: URLRequest(
+        url: WebUri(url),
+        headers: server.headers,
+      ));
     });
   }
 

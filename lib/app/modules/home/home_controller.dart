@@ -1,15 +1,19 @@
 import 'package:get/get.dart';
 
 import '../../data/models/anime.dart';
+import '../../data/models/post.dart';
 import '../../data/models/spotlight_item.dart';
+import '../../data/models/wallpaper.dart';
 import '../../data/models/watch_progress.dart';
 import '../../data/repositories/anime_repository.dart';
+import '../../data/repositories/content_repository.dart';
 import '../../data/services/storage_service.dart';
 import '../../routes/app_pages.dart';
 import '../watch/watch_args.dart';
 
 class HomeController extends GetxController {
   final AnimeRepository _repo = Get.find();
+  final ContentRepository _content = Get.find();
   final StorageService _storage = Get.find();
 
   final RxBool loading = true.obs;
@@ -20,6 +24,11 @@ class HomeController extends GetxController {
 
   final RxList<SpotlightItem> spotlight = <SpotlightItem>[].obs;
   final RxList<Anime> recent = <Anime>[].obs;
+
+  /// Latest website content shown in their own home rails (best-effort — a
+  /// failure here never blocks the anime feed).
+  final RxList<Post> latestPosts = <Post>[].obs;
+  final RxList<Wallpaper> latestWallpapers = <Wallpaper>[].obs;
 
   @override
   void onInit() {
@@ -81,5 +90,17 @@ class HomeController extends GetxController {
     } finally {
       loading.value = false;
     }
+    _loadWebsiteContent(); // fire-and-forget; rails fill in when ready
+  }
+
+  /// News + wallpaper rails. Each is independent and swallows its own errors so
+  /// one being down doesn't hide the other (or the anime feed).
+  Future<void> _loadWebsiteContent() async {
+    try {
+      latestPosts.assignAll(await _content.posts(limit: 10));
+    } catch (_) {/* leave empty */}
+    try {
+      latestWallpapers.assignAll(await _content.wallpapers(limit: 12));
+    } catch (_) {/* leave empty */}
   }
 }

@@ -8,6 +8,7 @@
 
 #include <firebase_core/firebase_core_plugin_c_api.h>
 #include <firebase_remote_config/firebase_remote_config_plugin_c_api.h>
+#include <flutter_inappwebview_windows/flutter_inappwebview_windows_plugin_c_api.h>
 #include <flutter_timezone/flutter_timezone_plugin_c_api.h>
 #include <gal/gal_plugin_c_api.h>
 #include <media_kit_libs_windows_video/media_kit_libs_windows_video_plugin_c_api.h>
@@ -19,6 +20,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("FirebaseCorePluginCApi"));
   FirebaseRemoteConfigPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FirebaseRemoteConfigPluginCApi"));
+  FlutterInappwebviewWindowsPluginCApiRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("FlutterInappwebviewWindowsPluginCApi"));
   FlutterTimezonePluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("FlutterTimezonePluginCApi"));
   GalPluginCApiRegisterWithRegistrar(

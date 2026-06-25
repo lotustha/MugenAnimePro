@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/models/episode.dart';
@@ -19,16 +19,10 @@ class WatchView extends GetView<WatchController> {
         // Back exits fullscreen first; otherwise leaves the page.
         if (!controller.exitFullscreen()) Get.back();
       },
-      child: Obx(() {
-        // When a video is in HTML5 fullscreen, show only that native view.
-        final fs = controller.fullscreenWidget.value;
-        if (fs != null) {
-          return Scaffold(backgroundColor: Colors.black, body: fs);
-        }
-        return Scaffold(
-          backgroundColor: AppTheme.background,
-          body: SafeArea(
-            child: LayoutBuilder(
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        body: SafeArea(
+          child: LayoutBuilder(
               builder: (context, constraints) {
                 // On wide landscape screens put player + details side-by-side.
                 final wide = constraints.maxWidth >= 720 &&
@@ -51,8 +45,7 @@ class WatchView extends GetView<WatchController> {
               },
             ),
           ),
-        );
-      }),
+        ),
     );
   }
 
@@ -106,7 +99,25 @@ class WatchView extends GetView<WatchController> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            WebViewWidget(controller: controller.webViewController),
+            InAppWebView(
+              initialSettings: controller.webSettings,
+              initialUserScripts: controller.userScripts,
+              onWebViewCreated: controller.onWebViewCreated,
+              onLoadStart: (_, url) => controller.onLoadStart(url),
+              onLoadStop: (_, url) => controller.onLoadStop(url),
+              onReceivedError: (_, request, __) {
+                if (request.isForMainFrame ?? false) {
+                  controller.onMainFrameError();
+                }
+              },
+              shouldOverrideUrlLoading: (_, action) => controller.shouldOverride(
+                  action.request.url, action.isForMainFrame),
+              onCreateWindow: (_, __) => controller.onCreateWindow(),
+              onPermissionRequest: (_, request) =>
+                  controller.onPermissionRequest(request.resources),
+              onEnterFullscreen: (_) => controller.onEnterFullscreen(),
+              onExitFullscreen: (_) => controller.onExitFullscreen(),
+            ),
             Obx(() {
               if (controller.error.value != null) {
                 return Container(
