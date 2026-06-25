@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/models/episode.dart';
@@ -10,47 +10,49 @@ import 'watch_controller.dart';
 class WatchView extends GetView<WatchController> {
   const WatchView({super.key});
 
-  static final InAppWebViewSettings _webSettings = InAppWebViewSettings(
-    mediaPlaybackRequiresUserGesture: false,
-    allowsInlineMediaPlayback: true,
-    javaScriptEnabled: true,
-    javaScriptCanOpenWindowsAutomatically: false,
-    supportMultipleWindows: false,
-    useShouldOverrideUrlLoading: true,
-    transparentBackground: false,
-    iframeAllowFullscreen: true,
-    useHybridComposition: true,
-    contentBlockers: WatchController.adBlockers,
-  );
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            // On wide landscape screens put the player and details side-by-side.
-            final wide = constraints.maxWidth >= 720 &&
-                constraints.maxWidth > constraints.maxHeight;
-            if (wide) {
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 3, child: Center(child: _player())),
-                  Expanded(flex: 2, child: _details()),
-                ],
-              );
-            }
-            return Column(
-              children: [
-                _player(),
-                Expanded(child: _details()),
-              ],
-            );
-          },
-        ),
-      ),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        // Back exits fullscreen first; otherwise leaves the page.
+        if (!controller.exitFullscreen()) Get.back();
+      },
+      child: Obx(() {
+        // When a video is in HTML5 fullscreen, show only that native view.
+        final fs = controller.fullscreenWidget.value;
+        if (fs != null) {
+          return Scaffold(backgroundColor: Colors.black, body: fs);
+        }
+        return Scaffold(
+          backgroundColor: AppTheme.background,
+          body: SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // On wide landscape screens put player + details side-by-side.
+                final wide = constraints.maxWidth >= 720 &&
+                    constraints.maxWidth > constraints.maxHeight;
+                if (wide) {
+                  return Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(flex: 3, child: Center(child: _player())),
+                      Expanded(flex: 2, child: _details()),
+                    ],
+                  );
+                }
+                return Column(
+                  children: [
+                    _player(),
+                    Expanded(child: _details()),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      }),
     );
   }
 
@@ -80,31 +82,7 @@ class WatchView extends GetView<WatchController> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            InAppWebView(
-              initialUrlRequest: URLRequest(url: WebUri('about:blank')),
-              initialSettings: _webSettings,
-              onWebViewCreated: controller.onWebViewCreated,
-              onLoadStart: (_, __) => controller.onLoadStart(),
-              onLoadStop: (c, __) => controller.onLoadStop(c),
-              onReceivedError: (_, request, err) => controller.onReceivedError(
-                err,
-                request.isForMainFrame ?? false,
-              ),
-              shouldOverrideUrlLoading: controller.shouldOverride,
-              onCreateWindow: controller.onCreateWindow,
-              onEnterFullscreen: (_) => controller.onEnterFullscreen(),
-              onExitFullscreen: (_) => controller.onExitFullscreen(),
-              onJsAlert: (_, __) async =>
-                  JsAlertResponse(handledByClient: true),
-              onJsConfirm: (_, __) async => JsConfirmResponse(
-                handledByClient: true,
-                action: JsConfirmResponseAction.CANCEL,
-              ),
-              onJsPrompt: (_, __) async => JsPromptResponse(
-                handledByClient: true,
-                action: JsPromptResponseAction.CANCEL,
-              ),
-            ),
+            WebViewWidget(controller: controller.webViewController),
             Obx(() {
               if (controller.error.value != null) {
                 return Container(

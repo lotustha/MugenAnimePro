@@ -41,7 +41,8 @@ dependencies:
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
   media_kit_libs_video: ^1.0.7
-  flutter_inappwebview: ^6.1.5
+  webview_flutter: ^4.0.0
+  webview_flutter_android: ^4.0.0
   wakelock_plus: ^1.2.0
   flutter_local_notifications: ^20.1.0
   flutter_timezone: ^5.1.0
