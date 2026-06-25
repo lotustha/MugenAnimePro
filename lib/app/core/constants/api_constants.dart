@@ -74,7 +74,8 @@ class ApiConstants {
   /// e.g. `GET /anime/anizen/movies?page=N`.
   static String category(String kind) => '$_root/$kind';
 
-  /// `GET /anime/anizen/genre/{name}?page=N` (name is lower-kebab, e.g.
-  /// `martial-arts`).
-  static String genre(String name) => '$_root/genre/$name';
+  /// `GET /anime/anizen/genre/{name}?page=N`. [name] is the lower-cased genre
+  /// with spaces (e.g. `slice of life`); it MUST be percent-encoded because the
+  /// provider matches on the spaced name, not a hyphenated slug.
+  static String genre(String name) => '$_root/genre/${Uri.encodeComponent(name)}';
 }

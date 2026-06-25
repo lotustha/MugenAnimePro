@@ -57,7 +57,7 @@ class ScheduleView extends GetView<ScheduleController> {
 
   Widget _dayPicker() {
     return SizedBox(
-      height: 96,
+      height: 100,
       child: Obx(() => ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -71,39 +71,44 @@ class ScheduleView extends GetView<ScheduleController> {
                   duration: const Duration(milliseconds: 200),
                   width: 60,
                   margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                   decoration: BoxDecoration(
                     color: selected ? AppTheme.primary : AppTheme.surface,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        i == 0 ? 'Today' : _weekdays[(d.weekday - 1) % 7],
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: selected ? Colors.white : Colors.white60,
+                  // FittedBox guards against overflow when the system font scale
+                  // is large: the day card shrinks to fit instead of overflowing.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          i == 0 ? 'Today' : _weekdays[(d.weekday - 1) % 7],
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: selected ? Colors.white : Colors.white60,
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        '${d.day}',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: selected ? Colors.white : Colors.white70,
+                        const SizedBox(height: 2),
+                        Text(
+                          '${d.day}',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: selected ? Colors.white : Colors.white70,
+                          ),
                         ),
-                      ),
-                      Text(
-                        _months[d.month - 1],
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: selected ? Colors.white70 : Colors.white38,
+                        Text(
+                          _months[d.month - 1],
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: selected ? Colors.white70 : Colors.white38,
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );

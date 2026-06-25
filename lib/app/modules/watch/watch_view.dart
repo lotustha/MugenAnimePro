@@ -57,20 +57,44 @@ class WatchView extends GetView<WatchController> {
   }
 
   /// Scrollable episode metadata, server / audio controls and episode list.
+  ///
+  /// A single virtualised [ListView.builder] renders the header rows (title,
+  /// nav, language, server, episodes bar) followed by the episodes, so only the
+  /// rows on screen are built — long series (e.g. One Piece) no longer lag.
   Widget _details() {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
-        _titleBar(),
-        _navRow(),
-        _languageSelection(),
-        _serverSelection(),
-        const Divider(height: 1),
-        _episodesHeader(),
-        _episodeList(),
-        const SizedBox(height: 16),
-      ],
-    );
+    const headerCount = 6;
+    return Obx(() {
+      final eps = controller.visibleEpisodes; // tracks query + sort
+      final currentId = controller.current.value?.id; // tracks current
+      final watched = controller.watchedEpisodes.toSet(); // tracks watched
+      final bodyCount = eps.isEmpty ? 1 : eps.length;
+      return ListView.builder(
+        controller: controller.episodeScroll,
+        padding: EdgeInsets.zero,
+        // header rows + episode rows (or the "no match" row) + trailing spacer
+        itemCount: headerCount + bodyCount + 1,
+        itemBuilder: (context, i) {
+          switch (i) {
+            case 0:
+              return _titleBar();
+            case 1:
+              return _navRow();
+            case 2:
+              return _languageSelection();
+            case 3:
+              return _serverSelection();
+            case 4:
+              return const Divider(height: 1);
+            case 5:
+              return _episodesBar(eps.length);
+          }
+          final listIndex = i - headerCount;
+          if (listIndex >= bodyCount) return const SizedBox(height: 16);
+          if (eps.isEmpty) return _noEpisodeMatch();
+          return _episodeTile(eps[listIndex], currentId, watched);
+        },
+      );
+    });
   }
 
   /// 16:9 WebView player pinned to the top, with overlays.
@@ -263,57 +287,101 @@ class WatchView extends GetView<WatchController> {
     }
   }
 
-  Widget _episodesHeader() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Text('Episodes (${controller.episodes.length})',
-          style: _sectionStyle),
+  /// Episodes section header: count + sort toggle + a search box. Used as a row
+  /// inside the virtualised list so it scrolls with the content.
+  Widget _episodesBar(int shown) {
+    final total = controller.episodes.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  shown == total
+                      ? 'Episodes ($total)'
+                      : 'Episodes ($shown of $total)',
+                  style: _sectionStyle,
+                ),
+              ),
+              Obx(() {
+                final asc = controller.episodesAscending.value;
+                return TextButton.icon(
+                  onPressed: controller.toggleEpisodeSort,
+                  icon: Icon(asc ? Icons.arrow_upward : Icons.arrow_downward,
+                      size: 18),
+                  label: Text(asc ? 'Oldest' : 'Newest'),
+                );
+              }),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: TextField(
+            controller: controller.episodeSearchCtrl,
+            focusNode: controller.episodeSearchFocus,
+            onChanged: controller.setEpisodeQuery,
+            textInputAction: TextInputAction.search,
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Search by number or title',
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: Obx(() => controller.episodeQuery.value.isEmpty
+                  ? const SizedBox.shrink()
+                  : IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      onPressed: controller.clearEpisodeQuery,
+                    )),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _episodeList() {
-    return Obx(() {
-      final eps = controller.episodes;
-      final currentId = controller.current.value?.id;
-      final watched = controller.watchedEpisodes;
-      return ListView.builder(
-        shrinkWrap: true,
-        physics: const NeverScrollableScrollPhysics(),
-        itemCount: eps.length,
-        itemBuilder: (_, i) {
-          final Episode ep = eps[i];
-          final isCurrent = ep.id == currentId;
-          final isWatched = watched.contains(ep.number);
-          return ListTile(
-            onTap: isCurrent ? null : () => controller.playEpisode(ep),
-            leading: CircleAvatar(
-              backgroundColor:
-                  isCurrent ? AppTheme.primary : AppTheme.surfaceVariant,
-              child: Text('${ep.number}',
-                  style: const TextStyle(fontSize: 13, color: Colors.white)),
-            ),
-            title:
-                Text(ep.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: ep.isFiller
-                ? const Text('Filler',
-                    style: TextStyle(color: Colors.orangeAccent, fontSize: 12))
-                : null,
-            trailing: Icon(
-              isCurrent
-                  ? Icons.play_arrow
-                  : isWatched
-                      ? Icons.check_circle
-                      : Icons.play_circle_outline,
-              color: isCurrent
-                  ? AppTheme.primary
-                  : isWatched
-                      ? AppTheme.primary.withValues(alpha: 0.6)
-                      : null,
-            ),
-          );
-        },
+  Widget _noEpisodeMatch() => const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(
+          child: Text('No episodes match your search',
+              style: TextStyle(color: Colors.white54)),
+        ),
       );
-    });
+
+  Widget _episodeTile(Episode ep, String? currentId, Set<int> watched) {
+    final isCurrent = ep.id == currentId;
+    final isWatched = watched.contains(ep.number);
+    return ListTile(
+      onTap: isCurrent ? null : () => controller.playEpisode(ep),
+      leading: CircleAvatar(
+        backgroundColor: isCurrent ? AppTheme.primary : AppTheme.surfaceVariant,
+        child: Text('${ep.number}',
+            style: const TextStyle(fontSize: 13, color: Colors.white)),
+      ),
+      title: Text(ep.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: ep.isFiller
+          ? const Text('Filler',
+              style: TextStyle(color: Colors.orangeAccent, fontSize: 12))
+          : null,
+      trailing: Icon(
+        isCurrent
+            ? Icons.play_arrow
+            : isWatched
+                ? Icons.check_circle
+                : Icons.play_circle_outline,
+        color: isCurrent
+            ? AppTheme.primary
+            : isWatched
+                ? AppTheme.primary.withValues(alpha: 0.6)
+                : null,
+      ),
+    );
   }
 
   static const _sectionStyle =

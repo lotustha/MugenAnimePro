@@ -19,7 +19,7 @@ class DetailController extends GetxController {
   final AniListClient _aniList = Get.find();
   final NotificationService _notifications = Get.find();
 
-  late final String animeId;
+  late String animeId;
 
   final RxBool loading = true.obs;
   final RxnString error = RxnString();
@@ -57,6 +57,25 @@ class DetailController extends GetxController {
     } finally {
       loading.value = false;
     }
+  }
+
+  /// Open a related/recommended anime in place (reuse this page) instead of
+  /// pushing a new detail route.
+  ///
+  /// Navigating detail→detail re-runs DetailBinding, but `Get.lazyPut` won't
+  /// replace the still-registered controller, so the rebuilt page resolves THIS
+  /// (stale) controller and shows the previous anime until the old instance is
+  /// disposed — the "have to tap twice" bug. Reloading here is deterministic.
+  /// `load()` flips `loading` on, which swaps the scroll view for the loader and
+  /// rebuilds it fresh, so the page also scrolls back to the top for free.
+  Future<void> openRelated(String id) async {
+    if (id.isEmpty || id == animeId) return;
+    animeId = id;
+    nextAiring.value = null;
+    _ticker?.cancel();
+    _ticker = null;
+    dubSelected.value = _storage.preferDub;
+    await load();
   }
 
   /// Resolve the next airing episode via AniList (best-effort) and start a

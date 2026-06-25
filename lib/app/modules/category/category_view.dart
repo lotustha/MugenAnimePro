@@ -22,7 +22,11 @@ class CategoryView extends GetView<CategoryController> {
           );
         }
         if (controller.items.isEmpty) {
-          return const EmptyView(message: 'Nothing here');
+          return EmptyView(
+            message: 'No titles found here yet.\nTap retry — the catalogue '
+                'sometimes responds slowly.',
+            onRetry: controller.load,
+          );
         }
         return NotificationListener<ScrollNotification>(
           onNotification: (n) {

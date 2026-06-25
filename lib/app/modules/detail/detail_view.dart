@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../core/constants/app_constants.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/anime.dart';
 import '../../data/models/anime_info.dart';
 import '../../routes/app_pages.dart';
+import '../category/category_args.dart';
 import '../../widgets/anime_card.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/state_views.dart';
@@ -217,7 +219,19 @@ class DetailView extends GetView<DetailController> {
             Wrap(
               spacing: 6,
               runSpacing: 4,
-              children: info.genres.map((g) => Chip(label: Text(g))).toList(),
+              children: info.genres
+                  .map((g) => ActionChip(
+                        label: Text(g),
+                        onPressed: () => Get.toNamed(
+                          Routes.category,
+                          arguments: CategoryArgs(
+                            title: g,
+                            kind: CategoryKind.genre,
+                            value: AppConstants.genreSlug(g),
+                          ),
+                        ),
+                      ))
+                  .toList(),
             ),
           if (info.description.isNotEmpty) ...[
             const SizedBox(height: 8),
@@ -247,7 +261,7 @@ class DetailView extends GetView<DetailController> {
             separatorBuilder: (_, __) => const SizedBox(width: 12),
             itemBuilder: (_, i) => AnimeCard(
               anime: items[i],
-              onTap: () => Get.offAndToNamed(Routes.detail, arguments: items[i].id),
+              onTap: () => controller.openRelated(items[i].id),
             ),
           ),
         ),

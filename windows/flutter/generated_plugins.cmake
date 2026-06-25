@@ -5,7 +5,6 @@
 list(APPEND FLUTTER_PLUGIN_LIST
   firebase_core
   firebase_remote_config
-  flutter_inappwebview_windows
   flutter_timezone
   gal
   media_kit_libs_windows_video

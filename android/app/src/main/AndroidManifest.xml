@@ -36,7 +36,31 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- FCM tray notifications set click_action=FLUTTER_NOTIFICATION_CLICK
+                 (see the website's push-notifications.ts). Without a matching
+                 intent-filter the tap can't resolve an activity, so the app never
+                 opens and onMessageOpenedApp / getInitialMessage never fire — the
+                 deep link is silently dropped. This filter routes that tap into
+                 MainActivity so firebase_messaging can deliver the payload. -->
+            <intent-filter>
+                <action android:name="FLUTTER_NOTIFICATION_CLICK"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
         </activity>
+        <!-- Live (video) wallpaper engine — loops a downloaded mp4 as wallpaper.
+             Bound by the system live-wallpaper picker (see setLiveWallpaper). -->
+        <service
+            android:name=".VideoWallpaperService"
+            android:exported="true"
+            android:label="Mugenstream Live"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/video_wallpaper"/>
+        </service>
         <!-- media_kit's video texture renders black under Impeller on Android
              emulators; force the Skia (OpenGL) backend so video composites. -->
         <meta-data

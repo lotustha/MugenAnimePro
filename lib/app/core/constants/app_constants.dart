@@ -11,19 +11,21 @@ class AppConstants {
     (label: 'Completed', kind: 'completed'),
   ];
 
-  /// Standard anime genres. Display name maps to the API slug
-  /// (lower-case, spaces → hyphens).
+  /// Genres the `animelok` provider actually returns titles for. The full
+  /// standard genre set was curated down to these against the live API — the
+  /// other ~22 (Cars, Super Power, Isekai, Shounen, Martial Arts, School, …)
+  /// return zero results from the provider's genre filter, so listing them only
+  /// leads to dead "nothing here" screens. Re-audit the genre endpoint if the
+  /// provider changes (see the genre-endpoint-slug-format note).
   static const List<String> genres = [
-    'Action', 'Adventure', 'Cars', 'Comedy', 'Dementia', 'Demons',
-    'Drama', 'Ecchi', 'Fantasy', 'Game', 'Harem', 'Historical',
-    'Horror', 'Isekai', 'Josei', 'Kids', 'Magic', 'Martial Arts',
-    'Mecha', 'Military', 'Music', 'Mystery', 'Parody', 'Police',
-    'Psychological', 'Romance', 'Samurai', 'School', 'Sci-Fi', 'Seinen',
-    'Shoujo', 'Shounen', 'Slice of Life', 'Space', 'Sports', 'Super Power',
-    'Supernatural', 'Thriller', 'Vampire',
+    'Action', 'Adventure', 'Comedy', 'Drama', 'Ecchi', 'Fantasy',
+    'Horror', 'Mecha', 'Music', 'Mystery', 'Psychological', 'Romance',
+    'Sci-Fi', 'Slice of Life', 'Sports', 'Supernatural', 'Thriller',
   ];
 
-  /// Convert a display genre into the API slug, e.g. "Super Power" → "super-power".
-  static String genreSlug(String name) =>
-      name.toLowerCase().replaceAll(' ', '-');
+  /// Convert a display genre into the API slug. The provider matches genres by
+  /// their lower-cased name WITH spaces preserved (e.g. "Slice of Life" →
+  /// "slice of life"); hyphenating multi-word genres returns zero results.
+  /// [ApiConstants.genre] percent-encodes the spaces.
+  static String genreSlug(String name) => name.toLowerCase();
 }

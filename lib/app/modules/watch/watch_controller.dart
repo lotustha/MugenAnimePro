@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:get/get.dart';
@@ -47,8 +49,53 @@ class WatchController extends GetxController {
   /// Episode numbers the user has already opened, for the watched indicator.
   final RxSet<int> watchedEpisodes = <int>{}.obs;
 
+  /// Episode-list search query + sort order. For long series (e.g. One Piece's
+  /// 1167 episodes) these let the user jump to an episode and flip the order.
+  final RxString episodeQuery = ''.obs;
+  /// Remembered across all anime via [StorageService.episodesAscending].
+  final RxBool episodesAscending = true.obs;
+  final ScrollController episodeScroll = ScrollController();
+  final TextEditingController episodeSearchCtrl = TextEditingController();
+  final FocusNode episodeSearchFocus = FocusNode();
+
+  /// Episodes filtered by [episodeQuery] (matches number or title) and ordered
+  /// by [episodesAscending]. The view renders this through a virtualised
+  /// builder, so only on-screen rows are built — no lag on huge lists.
+  List<Episode> get visibleEpisodes {
+    final q = episodeQuery.value.trim().toLowerCase();
+    final list = q.isEmpty
+        ? List<Episode>.of(episodes)
+        : episodes
+            .where((e) =>
+                e.number.toString().contains(q) ||
+                e.title.toLowerCase().contains(q))
+            .toList();
+    list.sort((a, b) => episodesAscending.value
+        ? a.number.compareTo(b.number)
+        : b.number.compareTo(a.number));
+    return list;
+  }
+
+  void setEpisodeQuery(String q) => episodeQuery.value = q;
+  void toggleEpisodeSort() {
+    episodesAscending.value = !episodesAscending.value;
+    _storage.episodesAscending = episodesAscending.value; // remember globally
+  }
+  void clearEpisodeQuery() {
+    episodeSearchCtrl.clear();
+    episodeQuery.value = '';
+  }
+
   /// Host of the currently embedded player; used to block ad redirects.
   String? _embedHost;
+
+  /// Auto-failover: if the active server's page errors or never finishes
+  /// loading within this window, advance to the next server for the episode.
+  /// (webview_flutter can only see page load failure/hangs — not whether the
+  /// video inside a cross-origin iframe actually started — so this covers
+  /// dead/blocked embeds, not a frame that loads then fails to play.)
+  Timer? _loadTimeout;
+  static const Duration _serverTimeout = Duration(seconds: 20);
 
   /// The native fullscreen video view surfaced by the WebView (HTML5
   /// fullscreen). Non-null while a video is playing fullscreen.
@@ -58,47 +105,47 @@ class WatchController extends GetxController {
   void Function()? _exitFullscreen;
 
   /// Injected into every player page to suppress the free hosts' ads. Since
-  /// webview_flutter can't intercept network requests, this runs in-page: it
-  /// blocks popups (window.open / JS dialogs), neutralises `_blank` redirect
-  /// links, drops ad iframes, and hides overlay/modal ad boxes — while
-  /// protecting the real player (matched by host) and any <video>.
+  /// webview_flutter can't intercept network requests, this runs in-page.
+  ///
+  /// IMPORTANT: it must never touch the player. The video lives in a
+  /// cross-origin iframe, so the parent document can't see the <video> inside
+  /// it — any DOM-mutation heuristic that removes iframes or hides "big" boxes
+  /// ends up hiding the player itself (audio keeps playing, picture goes black).
+  /// So we only do non-destructive popup/redirect suppression here:
+  ///   - neutralise window.open / JS dialogs (pop-ups, "you won" alerts),
+  ///   - strip target="_blank" so ad links can't spawn new tabs,
+  ///   - widen the layout viewport so the player's own control bar (≈9 buttons
+  ///     + timecode) has room and stops overlapping in the narrow portrait
+  ///     WebView (the page is laid out at a virtual width, then scaled to fit).
+  /// and rely on the native navigation delegate + custom-widget callbacks to
+  /// keep the user on the player host. No iframe removal, no display:none.
   static const String _adBlockJs = r'''
 (function(){
   if(window.__mab) return; window.__mab=1;
   try{
     window.open=function(){return null;};
     window.alert=function(){};window.confirm=function(){return false;};window.prompt=function(){return null;};
-    var PLAYER=/vidnest|megaplay|zephyrflick|videasy|vidwish|streamzone|uwucdn|anvod|as-cdn|short\.icu|animelok|kwik|pahe/i;
-    function isPlayer(el){
-      if(el.querySelector && el.querySelector('video')) return true;
-      var f = el.tagName==='IFRAME'? el : (el.querySelector? el.querySelector('iframe') : null);
-      return !!(f && PLAYER.test(f.src||''));
-    }
-    function clean(){
+    // Ad scripts use Notification permission prompts for spam — auto-deny.
+    try{ if(window.Notification){ window.Notification.requestPermission=function(){ return Promise.resolve('denied'); }; } }catch(e){}
+    function fixViewport(){
       try{
-        var W=window.innerWidth, H=window.innerHeight;
-        // Drop ad iframes (anything that isn't the big player frame).
-        [].forEach.call(document.querySelectorAll('iframe'),function(f){
-          if(PLAYER.test(f.src||'')) return;
-          if(f.offsetWidth < W*0.6 || f.offsetHeight < H*0.45) f.remove();
-        });
-        [].forEach.call(document.querySelectorAll('a[target="_blank"]'),function(a){ a.removeAttribute('target'); });
-        // Hide overlay ad boxes (fixed/absolute, stacked, wide-banner or big),
-        // never the player.
-        [].forEach.call(document.querySelectorAll('body *'),function(el){
-          var s=getComputedStyle(el);
-          if(s.position!=='fixed' && s.position!=='absolute') return;
-          if((parseInt(s.zIndex)||0) < 5) return;
-          var w=el.offsetWidth, h=el.offsetHeight;
-          var banner = w>W*0.5 && h>H*0.08 && h<H*0.85;
-          var big = w>W*0.4 && h>H*0.4;
-          if((banner||big) && !isPlayer(el) && !(el.querySelector&&el.querySelector('video'))){
-            el.style.setProperty('display','none','important');
-          }
-        });
+        var vp=document.querySelector('meta[name="viewport"]');
+        if(!vp){vp=document.createElement('meta');vp.setAttribute('name','viewport');(document.head||document.documentElement).appendChild(vp);}
+        var want='width=600, user-scalable=no';
+        if(vp.getAttribute('content')!==want) vp.setAttribute('content',want);
       }catch(e){}
     }
-    clean(); setInterval(clean,800);
+    function strip(){
+      try{
+        [].forEach.call(document.querySelectorAll('a[target="_blank"]'),function(a){ a.removeAttribute('target'); });
+        // Surgically drop the FirePlayer / as-cdn pop-under overlay: ".pppx" is a
+        // transparent full-screen click-sink that pop-opens an ad on the first
+        // tap. It is an ad-only class (never the player), so removing it both
+        // kills the pop and lets the first tap reach the real play button.
+        [].forEach.call(document.querySelectorAll('.pppx'),function(el){ el.remove(); });
+      }catch(e){}
+    }
+    fixViewport(); strip(); setInterval(function(){fixViewport();strip();},1000);
   }catch(e){}
 })();
 ''';
@@ -113,6 +160,7 @@ class WatchController extends GetxController {
     selectedLanguage.value =
         _storage.preferredLanguage ?? (args.preferDub ? 'english' : 'japanese');
     watchedEpisodes.addAll(_storage.watchedEpisodeNumbers(anime.id));
+    episodesAscending.value = _storage.episodesAscending; // remembered globally
 
     // Keep the screen on while in the player.
     WakelockPlus.enable();
@@ -134,15 +182,15 @@ class WatchController extends GetxController {
             playerLoading.value = true;
             webViewController.runJavaScript(_adBlockJs);
           },
-          onPageFinished: (_) {
+          onPageFinished: (url) {
             playerLoading.value = false;
+            // The real embed loaded — cancel the failover timer (the blank
+            // reset page also fires this, so only the real URL counts).
+            if (url != 'about:blank') _loadTimeout?.cancel();
             webViewController.runJavaScript(_adBlockJs);
           },
           onWebResourceError: (e) {
-            if (e.isForMainFrame ?? false) {
-              error.value = 'Player failed to load: ${e.description}';
-              playerLoading.value = false;
-            }
+            if (e.isForMainFrame ?? false) _onServerFailed();
           },
         ),
       );
@@ -187,7 +235,16 @@ class WatchController extends GetxController {
   /// redirects) while allowing the player's own sub-resources to load.
   NavigationDecision _onNavigation(NavigationRequest request) {
     if (!request.isMainFrame) return NavigationDecision.navigate;
-    final host = Uri.tryParse(request.url)?.host ?? '';
+    // Our own reset between embeds.
+    if (request.url == 'about:blank') return NavigationDecision.navigate;
+    final uri = Uri.tryParse(request.url);
+    final scheme = uri?.scheme ?? '';
+    // Block app-launch / store-redirect ads (intent://, market://, tg://,
+    // whatsapp://, …) that try to kick the user out of the player.
+    if (scheme != 'http' && scheme != 'https') {
+      return NavigationDecision.prevent;
+    }
+    final host = uri?.host ?? '';
     final embed = _embedHost;
     if (embed == null ||
         host.isEmpty ||
@@ -238,7 +295,7 @@ class WatchController extends GetxController {
       _storage.preferDub = false;
     }
     _applyLanguageFilter();
-    if (servers.isNotEmpty) _loadEmbed(servers.first);
+    if (servers.isNotEmpty) _playServer(0);
   }
 
   int get _currentIndex {
@@ -262,11 +319,42 @@ class WatchController extends GetxController {
 
   Future<void> playEpisode(Episode ep) => _loadEpisode(ep);
 
-  /// Switch to a different server for the current episode.
+  /// Switch to a different server for the current episode (user tap).
   void selectServer(int index) {
     if (index < 0 || index >= servers.length) return;
+    _playServer(index);
+  }
+
+  /// Select [index] as the active server and load its embed.
+  void _playServer(int index) {
     selectedServer.value = index;
     _loadEmbed(servers[index]);
+  }
+
+  /// The active server failed — its page errored or never finished loading.
+  /// Fall back to the next server for this episode, or surface an error once
+  /// every server has been tried.
+  void _onServerFailed({bool timedOut = false}) {
+    _loadTimeout?.cancel();
+    final failedIndex = selectedServer.value;
+    final next = failedIndex + 1;
+    if (next < servers.length) {
+      final from = servers[failedIndex].displayName;
+      final to = servers[next].displayName;
+      _playServer(next);
+      Get.rawSnackbar(
+        message: '$from ${timedOut ? "timed out" : "failed"} — trying $to',
+        duration: const Duration(seconds: 2),
+        snackPosition: SnackPosition.BOTTOM,
+        margin: const EdgeInsets.all(12),
+        borderRadius: 8,
+      );
+    } else {
+      playerLoading.value = false;
+      error.value =
+          "Couldn't play any server for this episode. Try another audio "
+          'language or episode.';
+    }
   }
 
   Future<void> _loadEpisode(Episode ep) async {
@@ -287,7 +375,7 @@ class WatchController extends GetxController {
       _saveProgress(ep);
       _storage.markEpisodeWatched(anime.id, ep.number);
       watchedEpisodes.add(ep.number);
-      if (servers.isNotEmpty) _loadEmbed(servers.first);
+      if (servers.isNotEmpty) _playServer(0);
     } catch (e) {
       error.value = '$e';
       loading.value = false;
@@ -298,11 +386,18 @@ class WatchController extends GetxController {
     final url = server.embedUrl;
     if (url == null) return;
     _embedHost = Uri.tryParse(url)?.host;
+    error.value = null;
     playerLoading.value = true;
+    _loadTimeout?.cancel();
     // Reset the WebView before loading the new player so the previous <video>'s
     // surface is released (otherwise the new stream can render black on switch).
     webViewController.loadRequest(Uri.parse('about:blank'));
     Future.delayed(const Duration(milliseconds: 150), () {
+      // Arm the failover timer only for the real embed (not the blank reset);
+      // onPageFinished for the real URL cancels it.
+      _loadTimeout = Timer(_serverTimeout, () {
+        if (playerLoading.value) _onServerFailed(timedOut: true);
+      });
       webViewController.loadRequest(Uri.parse(url), headers: server.headers);
     });
   }
@@ -331,6 +426,10 @@ class WatchController extends GetxController {
 
   @override
   void onClose() {
+    _loadTimeout?.cancel();
+    episodeScroll.dispose();
+    episodeSearchCtrl.dispose();
+    episodeSearchFocus.dispose();
     WakelockPlus.disable();
     _notifications.resume();
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);

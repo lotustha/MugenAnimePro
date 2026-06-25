@@ -112,12 +112,43 @@ class WallpaperDetailController extends GetxController {
     }
   }
 
-  /// which: 0 = home, 1 = lock, 2 = both.
+  /// Set a video as a looping live wallpaper. The mp4 is downloaded to a stable
+  /// app-internal path (the live-wallpaper service re-reads it on every surface
+  /// create, so it must persist — not a temp dir), then the system live-
+  /// wallpaper preview opens for the user to confirm.
+  Future<void> setLiveWallpaper() async {
+    final w = wallpaper.value;
+    if (w == null || !w.isVideo || settingWallpaper.value) return;
+    settingWallpaper.value = true;
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final path = '${dir.path}/live_wallpaper.mp4';
+      await _dio.download(w.fileUrl, path);
+      debugPrint('[wp] setLiveWallpaper path=$path');
+      final ok = await _wallpaperChannel.invokeMethod<bool>(
+            'setLiveWallpaper',
+            {'path': path},
+          ) ??
+          false;
+      if (!ok) {
+        _snack('Failed', 'Could not open the live wallpaper picker.');
+      }
+      // On success the OS live-wallpaper preview is now open; the user confirms
+      // there, so we don't show a "Done" snack here.
+    } catch (e) {
+      debugPrint('[wp] setLiveWallpaper ERROR: $e');
+      _snack('Failed', '$e');
+    } finally {
+      settingWallpaper.value = false;
+    }
+  }
+
+  /// which: 0 = home, 1 = lock, 2 = both. (Still images only.)
   Future<void> setAs(int which) async {
     final w = wallpaper.value;
     if (w == null || settingWallpaper.value) return;
     if (w.isVideo) {
-      _snack('Not supported', 'Live (video) wallpapers can only be downloaded.');
+      _snack('Not supported', 'Use "Set live" for video wallpapers.');
       return;
     }
     settingWallpaper.value = true;
@@ -272,17 +303,21 @@ class _ActionBar extends StatelessWidget {
                 child: Obx(() => FilledButton.icon(
                       style: FilledButton.styleFrom(
                           backgroundColor: AppTheme.primary),
-                      onPressed: controller.settingWallpaper.value || wallpaper.isVideo
+                      onPressed: controller.settingWallpaper.value
                           ? null
-                          : () => _chooseTarget(context),
+                          : () => wallpaper.isVideo
+                              ? controller.setLiveWallpaper()
+                              : _chooseTarget(context),
                       icon: controller.settingWallpaper.value
                           ? const SizedBox(
                               width: 16,
                               height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : const Icon(Icons.wallpaper),
-                      label: const Text('Set'),
+                          : Icon(wallpaper.isVideo
+                              ? Icons.video_settings
+                              : Icons.wallpaper),
+                      label: Text(wallpaper.isVideo ? 'Set live' : 'Set'),
                     )),
               ),
             ],

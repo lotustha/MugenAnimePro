@@ -13,6 +13,7 @@ class StorageService extends GetxService {
   static const _progressKey = 'watch_progress';
   static const _preferDubKey = 'prefer_dub';
   static const _preferredLanguageKey = 'preferred_language';
+  static const _episodesAscendingKey = 'episodes_ascending';
   static const _watchedKey = 'watched_episodes';
   static const _notifyKey = 'notify_anime';
 
@@ -166,4 +167,10 @@ class StorageService extends GetxService {
   String? get preferredLanguage => _box.read(_preferredLanguageKey) as String?;
   set preferredLanguage(String? value) =>
       _box.write(_preferredLanguageKey, value);
+
+  /// Preferred episode-list order, remembered across all anime:
+  /// true = oldest→newest (default), false = newest→oldest.
+  bool get episodesAscending => _box.read(_episodesAscendingKey) as bool? ?? true;
+  set episodesAscending(bool value) =>
+      _box.write(_episodesAscendingKey, value);
 }
