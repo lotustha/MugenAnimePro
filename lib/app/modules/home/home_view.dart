@@ -9,6 +9,7 @@ import '../../data/models/spotlight_item.dart';
 import '../../data/models/wallpaper.dart';
 import '../../data/services/storage_service.dart';
 import '../../routes/app_pages.dart';
+import '../wallpapers/wallpaper_card.dart';
 import '../../widgets/anime_card.dart';
 import '../../widgets/continue_watching_rail.dart';
 import '../../widgets/resume_card.dart';
@@ -230,9 +231,9 @@ class _PostRailCard extends StatelessWidget {
   }
 }
 
-/// Lightweight wallpaper card for the home rail — shows the image (or a video
-/// badge); the full looping preview lives in the Wallpapers list, keeping the
-/// home feed cheap to scroll.
+/// Wallpaper card for the home rail. Video wallpapers auto-play as a muted,
+/// looping preview (same widget as the Wallpapers list); stills show their
+/// picture. Only the handful of cards on screen decode at once.
 class _WallpaperRailCard extends StatelessWidget {
   final Wallpaper wallpaper;
   const _WallpaperRailCard({required this.wallpaper});
@@ -247,12 +248,7 @@ class _WallpaperRailCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (wallpaper.isVideo)
-              Container(
-                color: AppTheme.surfaceVariant,
-                alignment: Alignment.center,
-                child: const Icon(Icons.play_circle_outline,
-                    color: Colors.white54, size: 28),
-              )
+              WallpaperVideoPreview(url: wallpaper.fileUrl)
             else
               CachedNetworkImage(
                 imageUrl: wallpaper.fileUrl,

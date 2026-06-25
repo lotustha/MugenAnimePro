@@ -105,72 +105,29 @@ class WatchController extends GetxController {
   Timer? _loadTimeout;
   static const Duration _serverTimeout = Duration(seconds: 20);
 
-  // ─── Ad blocking ───────────────────────────────────────────────────────────
+  // ─── Navigation containment (NOT ad blocking) ───────────────────────────────
+  //
+  // We no longer try to BLOCK ads. Network/JS ad-blocking proved fragile — it
+  // kept catching proxied video segments and freezing playback — so ads are now
+  // left to render. We only CONTAIN them: an ad tap must never navigate the
+  // player away, open another app or window, or leave MugenStream / rotate it.
+  // That containment is enforced natively below — `onCreateWindow => false`
+  // (kills pop-ups/pop-unders), `shouldOverride` (cancels any navigation to a
+  // foreign host or non-http scheme like intent://, market://, tg://), and the
+  // popup-proof settings — without any ad blocklist that could touch the video.
 
-  /// Network-level blocklist for known pop-ad / ad-network hosts. Because
-  /// flutter_inappwebview supports content blockers, these requests are dropped
-  /// before they load — the real fix plain webview_flutter couldn't do.
-  static const List<String> _adHostPatterns = [
-    // Throwaway TLDs serving the banner/pop ads. These are matched against the
-    // URL's HOST only (see the anchored regex below) — critical, because video
-    // segments are proxied as `…/ts-proxy?url=https://X.lumiflow.click/…`, so a
-    // substring match would wrongly block the (legit) proxied video.
-    // NOT .click: lumiflow.click is a real video-segment CDN.
-    r'\.cfd', r'\.cyou', r'\.shop',
-    // Stable ad hosts observed in the resource log / earlier analysis.
-    r'lacisaboma\.com', r'casteschagoma\.com', r'firevideoplayer\.com',
-    // Known pop-ad / ad networks.
-    r'popads', r'popcash', r'poptm', r'popunder',
-    r'propellerads', r'pushwhy',
-    r'adsterra', r'hilltopads', r'onclicka', r'onclckbn',
-    r'monetag', r'clickadu', r'adnium', r'adskeeper',
-    r'highperformanceformat', r'profitabledisplay', r'effectivegate',
-    r'adnxs', r'adservme', r'adsco\.re',
-  ];
-
-  static final List<ContentBlocker> adBlockers = [
-    for (final p in _adHostPatterns)
-      ContentBlocker(
-        // Anchor to scheme://host so the pattern only matches the request HOST,
-        // never a path/query (which can legitimately contain an ad-looking
-        // string, e.g. the ts-proxy video URL above).
-        trigger: ContentBlockerTrigger(urlFilter: '^https?://[^/?#]*$p'),
-        action: ContentBlockerAction(type: ContentBlockerActionType.BLOCK),
-      ),
-  ];
-
-  /// Injected at document start into EVERY frame (forMainFrameOnly: false) — so
-  /// it also runs inside the cross-origin player/ad iframe that the previous
-  /// webview_flutter setup could never reach. Non-destructive: it neutralises
-  /// pop-ups and the FirePlayer/as-cdn ad handshake without touching the video.
-  static const String _adBlockJs = r'''
+  /// Top-frame-only viewport fix so the player's own controls don't overlap in
+  /// portrait. (UI fix, unrelated to ads.)
+  static const String _viewportJs = r'''
 (function(){
-  if(window.__mab) return; window.__mab=1;
-  try{
-    window.open=function(){return null;};
-    window.alert=function(){};window.confirm=function(){return false;};window.prompt=function(){return null;};
-    try{ if(window.Notification){ window.Notification.requestPermission=function(){ return Promise.resolve('denied'); }; } }catch(e){}
-    // Refuse the as-cdn / FirePlayer pop-ad handshake: decline instead of granting.
-    try{
-      window.addEventListener('message',function(e){
-        var d=e&&e.data; var t=(typeof d==='string')?d:(d&&d.action);
-        if(t==='as_request_ad_permission'){ try{(e.source||window).postMessage('no_ads','*');}catch(_){} }
-      },true);
-    }catch(e){}
-    var TOP=(window.top===window);
-    function fixViewport(){ if(!TOP) return; try{
-      var vp=document.querySelector('meta[name="viewport"]');
-      if(!vp){vp=document.createElement('meta');vp.setAttribute('name','viewport');(document.head||document.documentElement).appendChild(vp);}
-      var want='width=600, user-scalable=no';
-      if(vp.getAttribute('content')!==want) vp.setAttribute('content',want);
-    }catch(e){} }
-    function strip(){ try{
-      [].forEach.call(document.querySelectorAll('a[target="_blank"]'),function(a){ a.removeAttribute('target'); });
-      // FirePlayer/as-cdn transparent first-tap pop-under overlay (ad-only class).
-      [].forEach.call(document.querySelectorAll('.pppx'),function(el){ el.remove(); });
-    }catch(e){} }
-    fixViewport(); strip(); setInterval(function(){fixViewport();strip();},1000);
-  }catch(e){}
+  if(window.__mvp || window.top!==window) return; window.__mvp=1;
+  function fix(){ try{
+    var vp=document.querySelector('meta[name="viewport"]');
+    if(!vp){vp=document.createElement('meta');vp.setAttribute('name','viewport');(document.head||document.documentElement).appendChild(vp);}
+    var want='width=600, user-scalable=no';
+    if(vp.getAttribute('content')!==want) vp.setAttribute('content',want);
+  }catch(e){} }
+  fix(); setInterval(fix,1000);
 })();
 ''';
 
@@ -185,15 +142,14 @@ class WatchController extends GetxController {
         transparentBackground: false,
         iframeAllowFullscreen: true,
         useHybridComposition: true,
-        contentBlockers: adBlockers,
       );
 
   UnmodifiableListView<UserScript> get userScripts =>
       UnmodifiableListView<UserScript>([
         UserScript(
-          source: _adBlockJs,
+          source: _viewportJs,
           injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          forMainFrameOnly: false,
+          forMainFrameOnly: true,
         ),
       ]);
 

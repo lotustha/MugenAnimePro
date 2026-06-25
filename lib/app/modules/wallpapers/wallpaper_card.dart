@@ -24,7 +24,7 @@ class WallpaperCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (wallpaper.isVideo)
-              _VideoPreview(url: wallpaper.fileUrl)
+              WallpaperVideoPreview(url: wallpaper.fileUrl)
             else
               CachedNetworkImage(
                 imageUrl: wallpaper.fileUrl,
@@ -46,18 +46,19 @@ class WallpaperCard extends StatelessWidget {
   }
 }
 
-/// Looping, muted in-grid preview of a video wallpaper. The controller is tied
-/// to this card's lifecycle: the grid only builds visible cards, so off-screen
-/// cards dispose their player (only the handful on screen ever decode at once).
-class _VideoPreview extends StatefulWidget {
+/// Looping, muted preview of a video wallpaper. The controller is tied to this
+/// widget's lifecycle: lists only build visible cards, so off-screen cards
+/// dispose their player (only the handful on screen ever decode at once).
+/// Shared by the wallpapers grid and the home "Wallpapers" rail.
+class WallpaperVideoPreview extends StatefulWidget {
   final String url;
-  const _VideoPreview({required this.url});
+  const WallpaperVideoPreview({super.key, required this.url});
 
   @override
-  State<_VideoPreview> createState() => _VideoPreviewState();
+  State<WallpaperVideoPreview> createState() => _WallpaperVideoPreviewState();
 }
 
-class _VideoPreviewState extends State<_VideoPreview> {
+class _WallpaperVideoPreviewState extends State<WallpaperVideoPreview> {
   VideoPlayerController? _controller;
   bool _ready = false;
 
