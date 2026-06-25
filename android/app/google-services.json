@@ -1,0 +1,155 @@
+{
+  "project_info": {
+    "project_number": "477116627826",
+    "project_id": "mugenanime-7482f",
+    "storage_bucket": "mugenanime-7482f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:477116627826:android:f7f1fbcf8e125bc68c3beb",
+        "android_client_info": {
+          "package_name": "com.mugenstream.aniinfo"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjS5Cwig2S8sax8ki90Wcsu4a9P7QiF0Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:477116627826:android:deb940a053632ec28c3beb",
+        "android_client_info": {
+          "package_name": "com.mugenstream.anime"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjS5Cwig2S8sax8ki90Wcsu4a9P7QiF0Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:477116627826:android:924841976c17bdea8c3beb",
+        "android_client_info": {
+          "package_name": "com.mugenstream.player"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjS5Cwig2S8sax8ki90Wcsu4a9P7QiF0Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:477116627826:android:44d45dde762094658c3beb",
+        "android_client_info": {
+          "package_name": "com.mugenstream.pro"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjS5Cwig2S8sax8ki90Wcsu4a9P7QiF0Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:477116627826:android:1943100bde2ebc2e8c3beb",
+        "android_client_info": {
+          "package_name": "com.mugenstream.toon"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCjS5Cwig2S8sax8ki90Wcsu4a9P7QiF0Q"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "477116627826-5til1l63hmrmd33vdggibnoiqp0quj04.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

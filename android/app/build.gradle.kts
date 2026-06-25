@@ -3,6 +3,8 @@ plugins {
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
+    // Firebase (Messaging + Remote Config). Reads android/app/google-services.json.
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -22,8 +24,11 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.mugenstream.anime_stream"
+        // Must match a client in android/app/google-services.json (Firebase
+        // project mugenanime-7482f). "com.mugenstream.pro" is the MugenAnimePro
+        // entry; the old scaffold default "com.mugenstream.anime_stream" had no
+        // Firebase client, so push/Remote Config never worked under it.
+        applicationId = "com.mugenstream.pro"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         // Firebase Remote Config requires API 23+.

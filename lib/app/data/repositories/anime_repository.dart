@@ -44,12 +44,14 @@ class AnimeRepository {
     return AnimeInfo.fromJson(json);
   }
 
-  /// Streaming sources for an episode. [dub] selects the dubbed audio track
-  /// (`?type=dub`); otherwise the subtitled track (`?type=sub`) is returned.
-  Future<WatchResponse> watch(String episodeId, {bool dub = false}) async {
+  /// Streaming sources for an episode. By default fetches EVERY audio language
+  /// the episode exposes (`?type=all`) so the player can offer a language
+  /// selector (japanese/english/hindi/tamil/telugu/…). Pass a specific [type]
+  /// (e.g. `sub`, `dub`, `hindi`) to fetch just that track.
+  Future<WatchResponse> watch(String episodeId, {String type = 'all'}) async {
     final json = await _client.getObject(
       ApiConstants.watch(episodeId),
-      query: {'type': dub ? 'dub' : 'sub'},
+      query: {'type': type},
     );
     return WatchResponse.fromJson(json);
   }

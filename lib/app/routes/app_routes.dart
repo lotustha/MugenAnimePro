@@ -11,4 +11,9 @@ abstract class Routes {
   static const category = '/category';
   static const history = '/history';
   static const settings = '/settings';
+  static const wallpapers = '/wallpapers';
+  static const wallpaperSearch = '/wallpapers/search';
+  static const wallpaperDetail = '/wallpaper';
+  static const news = '/news';
+  static const newsDetail = '/news/detail';
 }

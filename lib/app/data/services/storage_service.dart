@@ -12,6 +12,7 @@ class StorageService extends GetxService {
   static const _favoritesKey = 'favorites';
   static const _progressKey = 'watch_progress';
   static const _preferDubKey = 'prefer_dub';
+  static const _preferredLanguageKey = 'preferred_language';
   static const _watchedKey = 'watched_episodes';
   static const _notifyKey = 'notify_anime';
 
@@ -159,4 +160,10 @@ class StorageService extends GetxService {
   // -------------------------------------------------------------- preferences
   bool get preferDub => _box.read(_preferDubKey) == true;
   set preferDub(bool value) => _box.write(_preferDubKey, value);
+
+  /// Preferred audio language (e.g. "japanese", "english", "hindi"). Null until
+  /// the user picks one in the player.
+  String? get preferredLanguage => _box.read(_preferredLanguageKey) as String?;
+  set preferredLanguage(String? value) =>
+      _box.write(_preferredLanguageKey, value);
 }

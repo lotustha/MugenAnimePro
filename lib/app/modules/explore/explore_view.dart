@@ -44,6 +44,28 @@ class ExploreView extends StatelessWidget {
           ),
           const SizedBox(height: 20),
 
+          // Wallpapers + News (from mugenstream.fun).
+          Row(
+            children: [
+              Expanded(
+                child: _FeatureTile(
+                  label: 'Wallpapers',
+                  icon: Icons.wallpaper,
+                  onTap: () => Get.toNamed(Routes.wallpapers),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _FeatureTile(
+                  label: 'News',
+                  icon: Icons.article_outlined,
+                  onTap: () => Get.toNamed(Routes.news),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
           const Text('Categories',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
           const SizedBox(height: 12),
@@ -86,6 +108,47 @@ class ExploreView extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _FeatureTile extends StatelessWidget {
+  final String label;
+  final IconData icon;
+  final VoidCallback onTap;
+  const _FeatureTile(
+      {required this.label, required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: AppTheme.surface,
+      borderRadius: BorderRadius.circular(14),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: LinearGradient(
+              colors: [
+                AppTheme.primary.withValues(alpha: 0.30),
+                AppTheme.surface,
+              ],
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, color: AppTheme.primary),
+              const SizedBox(width: 10),
+              Text(label,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w600)),
+            ],
+          ),
+        ),
       ),
     );
   }

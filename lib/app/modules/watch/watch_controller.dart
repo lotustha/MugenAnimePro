@@ -1,9 +1,7 @@
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:webview_flutter_android/webview_flutter_android.dart';
 
 import '../../data/models/anime.dart';
 import '../../data/models/episode.dart';
@@ -22,7 +20,12 @@ class WatchController extends GetxController {
   late final Anime anime;
   late final List<Episode> episodes;
 
-  late final WebViewController webViewController;
+  /// The InAppWebView controller, available once the widget is created.
+  InAppWebViewController? _web;
+
+  /// A player URL queued before the WebView controller was ready.
+  String? _pendingUrl;
+  Map<String, String> _pendingHeaders = const {};
 
   /// Whether the watch metadata (server list) is being fetched.
   final RxBool loading = true.obs;
@@ -33,12 +36,16 @@ class WatchController extends GetxController {
 
   final Rx<Episode?> current = Rx<Episode?>(null);
 
-  /// Servers returned for the current episode.
+  /// Servers for the CURRENTLY SELECTED language (filtered view shown as chips).
   final RxList<WatchServer> servers = <WatchServer>[].obs;
   final RxInt selectedServer = 0.obs;
 
-  /// false = SUB, true = DUB.
-  final RxBool dubSelected = false.obs;
+  /// Every server across all languages for the current episode (pre-filter).
+  List<WatchServer> _allServers = const [];
+
+  /// Audio languages available for the current episode and the selected one.
+  final RxList<String> availableLanguages = <String>[].obs;
+  final RxString selectedLanguage = ''.obs;
 
   /// Episode numbers the user has already opened, for the watched indicator.
   final RxSet<int> watchedEpisodes = <int>{}.obs;
@@ -46,12 +53,91 @@ class WatchController extends GetxController {
   /// Host of the currently embedded player; used to block ad redirects.
   String? _embedHost;
 
-  /// The native fullscreen video view surfaced by the WebView (HTML5
-  /// fullscreen). Non-null while a video is playing fullscreen.
-  final Rxn<Widget> fullscreenWidget = Rxn<Widget>();
+  /// Whether an HTML5 video is currently in native fullscreen.
+  bool _isFullscreen = false;
 
-  /// Callback handed to us by the WebView to dismiss the fullscreen view.
-  void Function()? _exitFullscreen;
+  /// Network-level ad blocking: drop requests to known ad / pop-under networks
+  /// before they load, across every frame. This is what kills the modal/banner
+  /// ads the free players inject (webview_flutter's JS injection couldn't reach
+  /// them inside cross-origin sub-frames).
+  static final List<ContentBlocker> adBlockers = [
+    for (final p in _adUrlPatterns)
+      ContentBlocker(
+        trigger: ContentBlockerTrigger(urlFilter: p),
+        action: ContentBlockerAction(type: ContentBlockerActionType.BLOCK),
+      ),
+  ];
+
+  static const List<String> _adUrlPatterns = [
+    r".*doubleclick\.net.*",
+    r".*googlesyndication\.com.*",
+    r".*googleadservices\.com.*",
+    r".*popads\.net.*",
+    r".*popcash.*",
+    r".*propellerads.*",
+    r".*propu\..*",
+    r".*adsterra.*",
+    r".*exoclick.*",
+    r".*exosrv.*",
+    r".*juicyads.*",
+    r".*hilltopads.*",
+    r".*clickadu.*",
+    r".*mgid\..*",
+    r".*monetag.*",
+    r".*adcash.*",
+    r".*onclickads.*",
+    r".*popunder.*",
+    r".*bidgear.*",
+    r".*a-ads\..*",
+    r".*adnxs\.com.*",
+    r".*histats.*",
+    r".*pushvio.*",
+    r".*vidoomy.*",
+    r".*adservice.*",
+    r".*adskeeper.*",
+    r".*adsterranet.*",
+    r".*highperformanceformat.*",
+    r".*pemsrv.*",
+    r".*tsyndicate.*",
+    r".*sw\.js.*push.*",
+  ];
+
+  /// Extra in-page hardening injected into each player page: kill popups, strip
+  /// `_blank` redirect links, and hide any leftover overlay ad boxes — while
+  /// protecting the real player iframe (matched by host) and any <video>.
+  static const String _hardenJs = '''
+(function(){
+  if(window.__mab) return; window.__mab=1;
+  try{
+    window.open=function(){return null;};
+    window.alert=function(){};window.confirm=function(){return false;};window.prompt=function(){return null;};
+    var PLAYER=/vidnest|megaplay|zephyrflick|videasy|vidwish|streamzone|uwucdn|anvod|as-cdn|short\\.icu|animelok/i;
+    function isPlayer(el){
+      if(el.querySelector && el.querySelector('video')) return true;
+      var f = el.tagName==='IFRAME'? el : (el.querySelector? el.querySelector('iframe') : null);
+      return !!(f && PLAYER.test(f.src||''));
+    }
+    function clean(){
+      try{
+        var W=window.innerWidth, H=window.innerHeight;
+        [].forEach.call(document.querySelectorAll('a[target="_blank"]'),function(a){ a.removeAttribute('target'); });
+        [].forEach.call(document.querySelectorAll('body *'),function(el){
+          var s=getComputedStyle(el);
+          if(s.position!=='fixed' && s.position!=='absolute') return;
+          if((parseInt(s.zIndex)||0) < 5) return;
+          var w=el.offsetWidth, h=el.offsetHeight;
+          var banner = w>W*0.5 && h>H*0.08 && h<H*0.85;
+          var big = w>W*0.4 && h>H*0.4;
+          if((banner||big) && !isPlayer(el) && !(el.querySelector&&el.querySelector('video'))){
+            el.style.setProperty('display','none','important');
+          }
+        });
+      }catch(e){}
+    }
+    clean(); setInterval(clean,1000);
+  }catch(e){}
+})();
+''';
 
   @override
   void onInit() {
@@ -59,7 +145,9 @@ class WatchController extends GetxController {
     final args = Get.arguments as WatchArgs;
     anime = args.anime;
     episodes = args.episodes;
-    dubSelected.value = args.preferDub;
+    // Initial language preference: last-used, else dub→english / sub→japanese.
+    selectedLanguage.value =
+        _storage.preferredLanguage ?? (args.preferDub ? 'english' : 'japanese');
     watchedEpisodes.addAll(_storage.watchedEpisodeNumbers(anime.id));
 
     // Keep the screen on while in the player.
@@ -68,88 +156,126 @@ class WatchController extends GetxController {
     // Don't let episode reminders pop over the video while watching.
     _notifications.suppress();
 
-    webViewController = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFF000000))
-      // Swallow popup-style JS dialogs that ad scripts spam.
-      ..setOnJavaScriptAlertDialog((_) async {})
-      ..setOnJavaScriptConfirmDialog((_) async => false)
-      ..setOnJavaScriptTextInputDialog((_) async => '')
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onNavigationRequest: _onNavigation,
-          onPageStarted: (_) => playerLoading.value = true,
-          onPageFinished: (_) => playerLoading.value = false,
-          onWebResourceError: (e) {
-            // Sub-resource failures inside the player page are noisy and
-            // expected; only surface a hard navigation failure.
-            if (e.isForMainFrame ?? false) {
-              error.value = 'Player failed to load: ${e.description}';
-              playerLoading.value = false;
-            }
-          },
-        ),
-      );
-
-    // Allow the embedded video to autoplay WITH sound. Android WebView blocks
-    // media playback until a user gesture by default, which starts it muted.
-    final platform = webViewController.platform;
-    if (platform is AndroidWebViewController) {
-      platform.setMediaPlaybackRequiresUserGesture(false);
-      // When a video enters HTML5 fullscreen, the WebView hands us a native
-      // view to display edge-to-edge. Rotate to landscape while it's shown
-      // and restore portrait when the user exits.
-      platform.setCustomWidgetCallbacks(
-        onShowCustomWidget: (widget, onHide) {
-          _exitFullscreen = onHide;
-          fullscreenWidget.value = widget;
-          SystemChrome.setPreferredOrientations(const [
-            DeviceOrientation.landscapeLeft,
-            DeviceOrientation.landscapeRight,
-          ]);
-          SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-        },
-        onHideCustomWidget: () {
-          _exitFullscreen = null;
-          fullscreenWidget.value = null;
-          SystemChrome.setPreferredOrientations(const [
-            DeviceOrientation.portraitUp,
-          ]);
-          SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-        },
-      );
-    }
-
     _loadEpisode(args.startEpisode);
   }
 
-  /// Exit fullscreen video (driven by the Android back button).
-  bool exitFullscreen() {
-    final exit = _exitFullscreen;
-    if (exit == null) return false;
-    exit();
-    return true;
+  // ── WebView wiring (called from the view) ─────────────────────────────────
+
+  void onWebViewCreated(InAppWebViewController controller) {
+    _web = controller;
+    final url = _pendingUrl;
+    if (url != null) {
+      _pendingUrl = null;
+      _web!.loadUrl(
+        urlRequest: URLRequest(url: WebUri(url), headers: _pendingHeaders),
+      );
+    }
+  }
+
+  void onLoadStart() {
+    playerLoading.value = true;
+  }
+
+  void onLoadStop(InAppWebViewController controller) {
+    playerLoading.value = false;
+    controller.evaluateJavascript(source: _hardenJs);
+  }
+
+  void onReceivedError(WebResourceError err, bool isForMainFrame) {
+    if (isForMainFrame) {
+      error.value = 'Player failed to load: ${err.description}';
+      playerLoading.value = false;
+    }
   }
 
   /// Block top-level navigations away from the player host (ad pop-ups /
   /// redirects) while allowing the player's own sub-resources to load.
-  NavigationDecision _onNavigation(NavigationRequest request) {
-    if (!request.isMainFrame) return NavigationDecision.navigate;
-    final host = Uri.tryParse(request.url)?.host ?? '';
+  Future<NavigationActionPolicy?> shouldOverride(
+    InAppWebViewController controller,
+    NavigationAction action,
+  ) async {
+    if (!action.isForMainFrame) return NavigationActionPolicy.ALLOW;
+    final host = action.request.url?.host ?? '';
     final embed = _embedHost;
     if (embed == null ||
         host.isEmpty ||
         host == embed ||
         host.endsWith('.$embed') ||
         embed.endsWith('.$host')) {
-      return NavigationDecision.navigate;
+      return NavigationActionPolicy.ALLOW;
     }
-    return NavigationDecision.prevent;
+    return NavigationActionPolicy.CANCEL;
   }
 
-  /// Whether the current episode offers a subtitled / dubbed track.
-  bool get subAvailable => current.value?.isSubbed ?? true;
-  bool get dubAvailable => current.value?.isDubbed ?? false;
+  /// Block the free players' attempts to open new windows / pop-unders.
+  Future<bool> onCreateWindow(
+    InAppWebViewController controller,
+    CreateWindowAction action,
+  ) async {
+    return false;
+  }
+
+  void onEnterFullscreen() {
+    _isFullscreen = true;
+    SystemChrome.setPreferredOrientations(const [
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+  }
+
+  void onExitFullscreen() {
+    _isFullscreen = false;
+    SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  }
+
+  /// Whether a fullscreen video is active (native back exits it on its own).
+  bool get isFullscreen => _isFullscreen;
+
+  // ── Language / server selection ───────────────────────────────────────────
+
+  /// Pick the language to show: keep the current one if still available, else
+  /// the stored preference, else japanese → english → first available.
+  void _resolveSelectedLanguage() {
+    final avail = availableLanguages;
+    if (avail.isEmpty) return;
+    if (selectedLanguage.value.isNotEmpty &&
+        avail.contains(selectedLanguage.value)) {
+      return;
+    }
+    final stored = _storage.preferredLanguage;
+    selectedLanguage.value = (stored != null && avail.contains(stored))
+        ? stored
+        : avail.contains('japanese')
+            ? 'japanese'
+            : avail.contains('english')
+                ? 'english'
+                : avail.first;
+  }
+
+  /// Filter [_allServers] down to the selected language's servers.
+  void _applyLanguageFilter() {
+    final lang = selectedLanguage.value;
+    var list = _allServers.where((s) => s.lang == lang).toList();
+    if (list.isEmpty) list = _allServers; // no per-lang tag → show everything
+    servers.assignAll(list);
+    selectedServer.value = 0;
+  }
+
+  /// Switch audio language (no refetch — all languages are already loaded).
+  void setLanguage(String lang) {
+    if (selectedLanguage.value == lang) return;
+    selectedLanguage.value = lang;
+    _storage.preferredLanguage = lang;
+    if (lang == 'english') {
+      _storage.preferDub = true;
+    } else if (lang == 'japanese') {
+      _storage.preferDub = false;
+    }
+    _applyLanguageFilter();
+    if (servers.isNotEmpty) _loadEmbed(servers.first);
+  }
 
   int get _currentIndex {
     final c = current.value;
@@ -179,40 +305,25 @@ class WatchController extends GetxController {
     _loadEmbed(servers[index]);
   }
 
-  void setDub(bool value) {
-    if (dubSelected.value == value) return;
-    // Ignore a switch to a track this episode doesn't provide.
-    if (value && !dubAvailable) return;
-    if (!value && !subAvailable) return;
-    dubSelected.value = value;
-    _storage.preferDub = value;
-    final ep = current.value;
-    if (ep != null) _loadEpisode(ep);
-  }
-
   Future<void> _loadEpisode(Episode ep) async {
     loading.value = true;
     error.value = null;
     current.value = ep;
     servers.clear();
-    // Constrain the requested audio to what this episode actually offers,
-    // and keep the toggle in sync with the resolved choice.
-    final wantDub = (dubSelected.value && ep.isDubbed) || !ep.isSubbed;
-    dubSelected.value = wantDub && ep.isDubbed;
     try {
-      final watch = await _repo.watch(ep.id, dub: dubSelected.value);
-      final playable =
-          watch.servers.where((s) => s.embedUrl != null).toList();
-      if (playable.isEmpty) {
+      final watch = await _repo.watch(ep.id);
+      _allServers = watch.servers.where((s) => s.embedUrl != null).toList();
+      if (_allServers.isEmpty) {
         throw 'No playable server for this episode.';
       }
-      servers.assignAll(playable);
-      selectedServer.value = 0;
+      availableLanguages.assignAll(watch.languages);
+      _resolveSelectedLanguage();
+      _applyLanguageFilter();
       loading.value = false;
       _saveProgress(ep);
       _storage.markEpisodeWatched(anime.id, ep.number);
       watchedEpisodes.add(ep.number);
-      _loadEmbed(playable.first);
+      if (servers.isNotEmpty) _loadEmbed(servers.first);
     } catch (e) {
       error.value = '$e';
       loading.value = false;
@@ -224,26 +335,37 @@ class WatchController extends GetxController {
     if (url == null) return;
     _embedHost = Uri.tryParse(url)?.host;
     playerLoading.value = true;
-    webViewController.loadRequest(
-      Uri.parse(url),
-      headers: server.headers,
-    );
+    final headers = server.headers;
+    final web = _web;
+    if (web == null) {
+      // The WebView isn't ready yet — queue it for onWebViewCreated.
+      _pendingUrl = url;
+      _pendingHeaders = headers;
+      return;
+    }
+    // Reset before loading the new player so the previous <video>'s surface is
+    // released (otherwise the new stream can render as a black frame on switch).
+    web.loadUrl(urlRequest: URLRequest(url: WebUri('about:blank')));
+    Future.delayed(const Duration(milliseconds: 150), () {
+      _web?.loadUrl(
+        urlRequest: URLRequest(url: WebUri(url), headers: headers),
+      );
+    });
   }
 
-  /// Record the episode for "continue watching". The iframe player is
-  /// cross-origin, so an exact position is unavailable — we track at
-  /// episode granularity so the series can be resumed at the right episode.
+  /// Record the episode for "continue watching".
   void _saveProgress(Episode ep) {
     final existing = _storage.progressFor(anime.id);
     _storage.saveProgress(WatchProgress(
       anime: anime,
       episodeId: ep.id,
       episodeNumber: ep.number,
-      // Preserve any prior position if resuming the same episode, else 0.
-      positionMs:
-          (existing != null && existing.episodeId == ep.id) ? existing.positionMs : 0,
-      durationMs:
-          (existing != null && existing.episodeId == ep.id) ? existing.durationMs : 0,
+      positionMs: (existing != null && existing.episodeId == ep.id)
+          ? existing.positionMs
+          : 0,
+      durationMs: (existing != null && existing.episodeId == ep.id)
+          ? existing.durationMs
+          : 0,
       updatedAt: DateTime.now().millisecondsSinceEpoch,
     ));
   }
@@ -256,10 +378,7 @@ class WatchController extends GetxController {
   @override
   void onClose() {
     WakelockPlus.disable();
-    // Re-arm episode reminders now that the user has stopped watching.
     _notifications.resume();
-    // Make sure we never leave the rest of the app stuck in landscape /
-    // immersive mode if the user backs out mid-fullscreen.
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.onClose();

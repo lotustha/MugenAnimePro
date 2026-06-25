@@ -4,8 +4,17 @@ import 'package:get/get.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../core/notifications/notification_router.dart';
 import '../providers/anilist_client.dart';
 import 'storage_service.dart';
+
+/// Background isolate handler for a local-notification tap (app terminated).
+/// Must be top-level + vm:entry-point. We can't navigate from here, so the tap
+/// is re-handled by FCM's getInitialMessage path when the app cold-starts.
+@pragma('vm:entry-point')
+void notificationTapBackground(NotificationResponse response) {
+  // Intentionally a no-op: cold-start routing is driven by PushService.
+}
 
 /// Schedules local "new episode" reminders for anime the user follows.
 ///
@@ -38,16 +47,68 @@ class NotificationService extends GetxService {
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _plugin.initialize(
       settings: const InitializationSettings(android: android),
+      onDidReceiveNotificationResponse: _onTap,
+      onDidReceiveBackgroundNotificationResponse: notificationTapBackground,
     );
 
-    await _android?.createNotificationChannel(const AndroidNotificationChannel(
-      _channelId,
-      _channelName,
-      description: _channelDesc,
-      importance: Importance.high,
-    ));
+    // Episode reminders (local) + push channels (FCM tray + foreground display).
+    for (final c in _channels) {
+      await _android?.createNotificationChannel(AndroidNotificationChannel(
+        c.id,
+        c.name,
+        description: c.description,
+        importance: Importance.high,
+      ));
+    }
     _ready = true;
     return this;
+  }
+
+  /// All channels the app uses. `episodes` doubles as the local reminder channel
+  /// and the FCM new-episode channel (matches push-notifications.ts channelId).
+  static const List<AndroidNotificationChannel> _channels = [
+    AndroidNotificationChannel(_channelId, _channelName, description: _channelDesc),
+    AndroidNotificationChannel('posts', 'New Articles',
+        description: 'New anime news articles'),
+    AndroidNotificationChannel('wallpapers', 'New Wallpapers',
+        description: 'New anime wallpapers'),
+    AndroidNotificationChannel('general', 'General',
+        description: 'General announcements'),
+  ];
+
+  /// Local-notification tap → route via the shared router.
+  void _onTap(NotificationResponse response) {
+    NotificationRouter.routePayload(response.payload);
+  }
+
+  /// Display an FCM message in the foreground as a local notification.
+  /// [payload] should be built with [NotificationRouter.encodePayload].
+  Future<void> showRemote({
+    required String title,
+    required String body,
+    String channelId = 'general',
+    String? payload,
+  }) async {
+    if (!_ready) return;
+    final channel = _channels.firstWhere(
+      (c) => c.id == channelId,
+      orElse: () => _channels.last, // 'general'
+    );
+    await _plugin.show(
+      id: DateTime.now().microsecondsSinceEpoch & 0x7fffffff,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          channel.id,
+          channel.name,
+          channelDescription: channel.description,
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+      ),
+      payload: payload,
+    );
   }
 
   AndroidFlutterLocalNotificationsPlugin? get _android => _plugin

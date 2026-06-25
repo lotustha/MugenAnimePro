@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../core/theme/app_theme.dart';
 import '../../data/models/episode.dart';
@@ -10,56 +10,47 @@ import 'watch_controller.dart';
 class WatchView extends GetView<WatchController> {
   const WatchView({super.key});
 
+  static final InAppWebViewSettings _webSettings = InAppWebViewSettings(
+    mediaPlaybackRequiresUserGesture: false,
+    allowsInlineMediaPlayback: true,
+    javaScriptEnabled: true,
+    javaScriptCanOpenWindowsAutomatically: false,
+    supportMultipleWindows: false,
+    useShouldOverrideUrlLoading: true,
+    transparentBackground: false,
+    iframeAllowFullscreen: true,
+    useHybridComposition: true,
+    contentBlockers: WatchController.adBlockers,
+  );
+
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        // Back exits fullscreen first; otherwise leaves the page.
-        if (!controller.exitFullscreen()) Get.back();
-      },
-      child: Obx(() {
-        // When a video is in HTML5 fullscreen, show only that native view.
-        final fs = controller.fullscreenWidget.value;
-        if (fs != null) {
-          return Scaffold(
-            backgroundColor: Colors.black,
-            body: fs,
-          );
-        }
-        return Scaffold(
-          backgroundColor: AppTheme.background,
-          body: SafeArea(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // On wide landscape screens (tablets / TV) put the player and
-                // the details side-by-side instead of stacked.
-                final wide = constraints.maxWidth >= 720 &&
-                    constraints.maxWidth > constraints.maxHeight;
-                if (wide) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: Center(child: _player()),
-                      ),
-                      Expanded(flex: 2, child: _details()),
-                    ],
-                  );
-                }
-                return Column(
-                  children: [
-                    _player(),
-                    Expanded(child: _details()),
-                  ],
-                );
-              },
-            ),
-          ),
-        );
-      }),
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            // On wide landscape screens put the player and details side-by-side.
+            final wide = constraints.maxWidth >= 720 &&
+                constraints.maxWidth > constraints.maxHeight;
+            if (wide) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 3, child: Center(child: _player())),
+                  Expanded(flex: 2, child: _details()),
+                ],
+              );
+            }
+            return Column(
+              children: [
+                _player(),
+                Expanded(child: _details()),
+              ],
+            );
+          },
+        ),
+      ),
     );
   }
 
@@ -70,8 +61,8 @@ class WatchView extends GetView<WatchController> {
       children: [
         _titleBar(),
         _navRow(),
+        _languageSelection(),
         _serverSelection(),
-        _audioSelection(),
         const Divider(height: 1),
         _episodesHeader(),
         _episodeList(),
@@ -89,7 +80,31 @@ class WatchView extends GetView<WatchController> {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            WebViewWidget(controller: controller.webViewController),
+            InAppWebView(
+              initialUrlRequest: URLRequest(url: WebUri('about:blank')),
+              initialSettings: _webSettings,
+              onWebViewCreated: controller.onWebViewCreated,
+              onLoadStart: (_, __) => controller.onLoadStart(),
+              onLoadStop: (c, __) => controller.onLoadStop(c),
+              onReceivedError: (_, request, err) => controller.onReceivedError(
+                err,
+                request.isForMainFrame ?? false,
+              ),
+              shouldOverrideUrlLoading: controller.shouldOverride,
+              onCreateWindow: controller.onCreateWindow,
+              onEnterFullscreen: (_) => controller.onEnterFullscreen(),
+              onExitFullscreen: (_) => controller.onExitFullscreen(),
+              onJsAlert: (_, __) async =>
+                  JsAlertResponse(handledByClient: true),
+              onJsConfirm: (_, __) async => JsConfirmResponse(
+                handledByClient: true,
+                action: JsConfirmResponseAction.CANCEL,
+              ),
+              onJsPrompt: (_, __) async => JsPromptResponse(
+                handledByClient: true,
+                action: JsPromptResponseAction.CANCEL,
+              ),
+            ),
             Obx(() {
               if (controller.error.value != null) {
                 return Container(
@@ -113,9 +128,7 @@ class WatchView extends GetView<WatchController> {
               left: 0,
               child: IconButton(
                 icon: const Icon(Icons.arrow_back, color: Colors.white),
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.black38,
-                ),
+                style: IconButton.styleFrom(backgroundColor: Colors.black38),
                 onPressed: Get.back,
               ),
             ),
@@ -224,43 +237,55 @@ class WatchView extends GetView<WatchController> {
     });
   }
 
-  Widget _audioSelection() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Row(
+  /// Horizontal chips for every audio language the episode exposes.
+  Widget _languageSelection() {
+    return Obx(() {
+      final langs = controller.availableLanguages;
+      if (langs.length < 2) return const SizedBox.shrink();
+      final selected = controller.selectedLanguage.value;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Audio', style: _sectionStyle),
-          const SizedBox(width: 16),
-          Obx(() {
-            // React to the current episode so availability updates per episode.
-            controller.current.value;
-            final subOk = controller.subAvailable;
-            final dubOk = controller.dubAvailable;
-            return ToggleButtons(
-              isSelected: [
-                !controller.dubSelected.value,
-                controller.dubSelected.value,
-              ],
-              onPressed: (i) {
-                if (i == 0 && !subOk) return;
-                if (i == 1 && !dubOk) return;
-                controller.setDub(i == 1);
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text('Audio language', style: _sectionStyle),
+          ),
+          SizedBox(
+            height: 44,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: langs.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, i) {
+                final lang = langs[i];
+                return ChoiceChip(
+                  label: Text(_langLabel(lang)),
+                  selected: selected == lang,
+                  onSelected: (_) => controller.setLanguage(lang),
+                );
               },
-              borderRadius: BorderRadius.circular(8),
-              constraints: const BoxConstraints(minHeight: 34, minWidth: 56),
-              children: [
-                Opacity(opacity: subOk ? 1 : 0.35, child: const Text('SUB')),
-                Opacity(opacity: dubOk ? 1 : 0.35, child: const Text('DUB')),
-              ],
-            );
-          }),
+            ),
+          ),
         ],
-      ),
-    );
+      );
+    });
+  }
+
+  static String _langLabel(String lang) {
+    switch (lang) {
+      case 'japanese':
+        return 'Japanese (Sub)';
+      case 'english':
+        return 'English (Dub)';
+      case '':
+        return 'Default';
+      default:
+        return lang[0].toUpperCase() + lang.substring(1);
+    }
   }
 
   Widget _episodesHeader() {
-    // episodes is a fixed list (not reactive) — no Obx needed.
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Text('Episodes (${controller.episodes.length})',
@@ -289,8 +314,8 @@ class WatchView extends GetView<WatchController> {
               child: Text('${ep.number}',
                   style: const TextStyle(fontSize: 13, color: Colors.white)),
             ),
-            title: Text(ep.title,
-                maxLines: 1, overflow: TextOverflow.ellipsis),
+            title:
+                Text(ep.title, maxLines: 1, overflow: TextOverflow.ellipsis),
             subtitle: ep.isFiller
                 ? const Text('Filler',
                     style: TextStyle(color: Colors.orangeAccent, fontSize: 12))

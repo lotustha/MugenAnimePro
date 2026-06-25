@@ -7,23 +7,40 @@
 class WatchResponse {
   final bool isDub;
   final List<WatchServer> servers;
+  final List<String> languages; // e.g. [japanese, english, hindi, tamil, …]
   final TimeRange? intro;
   final TimeRange? outro;
 
   const WatchResponse({
     this.isDub = false,
     this.servers = const [],
+    this.languages = const [],
     this.intro,
     this.outro,
   });
 
   factory WatchResponse.fromJson(Map<String, dynamic> json) {
+    final servers = ((json['results'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => WatchServer.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+    // Prefer the explicit `languages` field; fall back to the distinct langs
+    // present on the server results.
+    var langs = ((json['languages'] as List?) ?? const [])
+        .map((e) => '$e'.toLowerCase())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (langs.isEmpty) {
+      langs = servers
+          .map((s) => s.lang)
+          .where((l) => l.isNotEmpty)
+          .toSet()
+          .toList();
+    }
     return WatchResponse(
       isDub: json['isDub'] == true,
-      servers: ((json['results'] as List?) ?? const [])
-          .whereType<Map>()
-          .map((e) => WatchServer.fromJson(Map<String, dynamic>.from(e)))
-          .toList(),
+      servers: servers,
+      languages: langs,
       intro: TimeRange.fromList(json['intro']),
       outro: TimeRange.fromList(json['outro']),
     );
@@ -40,6 +57,7 @@ class WatchResponse {
 
 class WatchServer {
   final String name;
+  final String lang; // audio language of this server, lowercase (e.g. "hindi")
   final String? iframe;
   final List<StreamSource> sources;
   final List<Subtitle> subtitles;
@@ -47,6 +65,7 @@ class WatchServer {
 
   const WatchServer({
     required this.name,
+    this.lang = '',
     this.iframe,
     this.sources = const [],
     this.subtitles = const [],
@@ -56,6 +75,7 @@ class WatchServer {
   factory WatchServer.fromJson(Map<String, dynamic> json) {
     return WatchServer(
       name: '${json['name'] ?? 'Server'}',
+      lang: '${json['lang'] ?? ''}'.toLowerCase(),
       iframe: json['iframe'] as String?,
       sources: ((json['sources'] as List?) ?? const [])
           .whereType<Map>()
@@ -75,7 +95,8 @@ class WatchServer {
   /// separately. e.g. `Anizen VidCloud-1 (HardSub)` -> `VidCloud-1`.
   String get displayName {
     var n = name
-        .replaceFirst(RegExp(r'^anizen\s+', caseSensitive: false), '')
+        .replaceFirst(
+            RegExp(r'^(anizen|animelok|anivid)\s+', caseSensitive: false), '')
         .replaceFirst(RegExp(r'\s*\([^)]*\)\s*$'), '')
         .trim();
     return n.isEmpty ? name : n;

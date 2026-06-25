@@ -5,6 +5,11 @@ import '../modules/category/category_view.dart';
 import '../modules/detail/detail_binding.dart';
 import '../modules/detail/detail_view.dart';
 import '../modules/history/history_view.dart';
+import '../modules/news/news_detail_view.dart';
+import '../modules/news/news_view.dart';
+import '../modules/wallpapers/wallpaper_detail_view.dart';
+import '../modules/wallpapers/wallpaper_search_view.dart';
+import '../modules/wallpapers/wallpapers_view.dart';
 import '../modules/player/player_binding.dart';
 import '../modules/player/player_view.dart';
 import '../modules/root/root_binding.dart';
@@ -69,6 +74,36 @@ class AppPages {
       name: Routes.settings,
       page: () => const SettingsView(),
       binding: SettingsBinding(),
+      transition: Transition.cupertino,
+    ),
+    GetPage(
+      name: Routes.wallpapers,
+      page: () => const WallpapersView(),
+      binding: WallpapersBinding(),
+      transition: Transition.cupertino,
+    ),
+    GetPage(
+      name: Routes.wallpaperSearch,
+      page: () => const WallpaperSearchView(),
+      binding: WallpaperSearchBinding(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.wallpaperDetail,
+      page: () => const WallpaperDetailView(),
+      binding: WallpaperDetailBinding(),
+      transition: Transition.fadeIn,
+    ),
+    GetPage(
+      name: Routes.news,
+      page: () => const NewsView(),
+      binding: NewsBinding(),
+      transition: Transition.cupertino,
+    ),
+    GetPage(
+      name: Routes.newsDetail,
+      page: () => const NewsDetailView(),
+      binding: NewsDetailBinding(),
       transition: Transition.cupertino,
     ),
   ];

@@ -1,14 +1,53 @@
-/// Endpoints for the Cooren API (anizen provider).
+/// Endpoints for the Cooren API.
 ///
 /// Base host resolves to api.mugenstream.fun. All anime routes live under
-/// `/anime/{provider}`. The provider is fixed to `anizen` for this app.
+/// `/anime/{provider}`.
+///
+/// [provider] is NOT const — it can be overridden at runtime from Firebase
+/// Remote Config (key `anime_provider`) so the backend provider can be switched
+/// (animelok / anivid / anizen / …) without shipping an app update. Default is
+/// `animelok` — multi-language (japanese, english, hindi, tamil, telugu, …),
+/// each language served by its own working server. See RemoteSettingsService.
 class ApiConstants {
   ApiConstants._();
 
   static const String baseUrl = 'https://api.mugenstream.fun';
-  static const String provider = 'anizen';
+  static String provider = 'animelok';
 
-  static const String _root = '/anime/$provider';
+  /// Mugenstream website (posts, wallpapers, in-app messages, FCM token
+  /// registration). Distinct from [baseUrl], which is the anime streaming API.
+  static const String siteUrl = 'https://mugenstream.fun';
+
+  /// `POST/DELETE /api/notifications` — register/remove this device's FCM token.
+  static String notifications() => '$siteUrl/api/notifications';
+
+  /// `GET /api/in-app-messages?app={slug}&deviceId={id}` — active overlay messages.
+  static String inAppMessages() => '$siteUrl/api/in-app-messages';
+
+  /// `POST /api/in-app-messages/track` — record an impression/click.
+  static String inAppMessagesTrack() => '$siteUrl/api/in-app-messages/track';
+
+  // ── Website content (used with SiteClient, whose baseUrl is [siteUrl]) ──────
+
+  /// `GET /api/posts?limit=&page=` — news article list.
+  static const String posts = '/api/posts';
+
+  /// `GET /api/posts/{slug}` — single article with full HTML content.
+  static String post(String slug) => '/api/posts/$slug';
+
+  /// `GET /api/wallpapers?type=&page=&limit=` — wallpaper gallery.
+  static const String wallpapers = '/api/wallpapers';
+
+  /// `GET /api/wallpapers/{id}` — single wallpaper.
+  static String wallpaper(String id) => '/api/wallpapers/$id';
+
+  /// `GET /api/wallpaper-categories` — list of categories with counts.
+  static const String wallpaperCategories = '/api/wallpaper-categories';
+
+  /// `GET /api/wallpapers/search?q=&limit=&type=` — wallpaper search.
+  static const String wallpaperSearch = '/api/wallpapers/search';
+
+  static String get _root => '/anime/$provider';
 
   /// `GET /anime/anizen/spotlight` → { results: [...] } (home hero items).
   static String spotlight() => '$_root/spotlight';

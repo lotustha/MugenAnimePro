@@ -2,6 +2,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_remote_config/firebase_remote_config.dart';
 import 'package:get/get.dart';
 
+import '../../core/constants/api_constants.dart';
+
 /// App links (support / socials / website) sourced from Firebase Remote
 /// Config, with safe local defaults so the UI works before Firebase is set up.
 ///
@@ -19,12 +21,16 @@ class RemoteSettingsService extends GetxService {
   static const _kFacebook = 'facebook_url';
   static const _kDiscord = 'discord_url';
   static const _kWebsite = 'website_url';
+  // Anime backend provider (anivid | anizen | animelok | …). Empty = keep the
+  // app's built-in default. Lets us switch providers without an app update.
+  static const _kProvider = 'anime_provider';
 
   static const Map<String, String> _defaults = {
     _kSupport: '',
     _kFacebook: '',
     _kDiscord: '',
     _kWebsite: '',
+    _kProvider: '',
   };
 
   final RxString supportUrl = ''.obs;
@@ -65,12 +71,17 @@ class RemoteSettingsService extends GetxService {
     } catch (_) {}
   }
 
-  void _readFrom(FirebaseRemoteConfig rc) => _apply({
-        _kSupport: rc.getString(_kSupport),
-        _kFacebook: rc.getString(_kFacebook),
-        _kDiscord: rc.getString(_kDiscord),
-        _kWebsite: rc.getString(_kWebsite),
-      });
+  void _readFrom(FirebaseRemoteConfig rc) {
+    _apply({
+      _kSupport: rc.getString(_kSupport),
+      _kFacebook: rc.getString(_kFacebook),
+      _kDiscord: rc.getString(_kDiscord),
+      _kWebsite: rc.getString(_kWebsite),
+    });
+    // Override the anime provider if the console specifies one.
+    final p = rc.getString(_kProvider).trim();
+    if (p.isNotEmpty) ApiConstants.provider = p;
+  }
 
   void _apply(Map<String, String> v) {
     supportUrl.value = v[_kSupport] ?? '';

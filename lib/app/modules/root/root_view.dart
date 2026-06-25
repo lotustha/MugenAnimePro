@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../data/services/inapp_message_service.dart';
 import '../../data/services/notification_service.dart';
+import '../../data/services/push_service.dart';
 import '../explore/explore_view.dart';
 import '../home/home_view.dart';
 import '../library/library_view.dart';
@@ -21,9 +23,12 @@ class _RootViewState extends State<RootView> {
   @override
   void initState() {
     super.initState();
-    // Re-arm episode reminders with fresh airing times once the shell is up.
+    // Once the shell is up: re-arm episode reminders, route any notification
+    // that cold-started the app, and surface a pending in-app message.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Get.find<NotificationService>().rescheduleAll();
+      Get.find<PushService>().flushInitialMessage();
+      Get.find<InAppMessageService>().maybeShowOnLaunch();
     });
   }
 
