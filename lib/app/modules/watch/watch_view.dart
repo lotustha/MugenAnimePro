@@ -105,6 +105,7 @@ class WatchView extends GetView<WatchController> {
               onWebViewCreated: controller.onWebViewCreated,
               onLoadStart: (_, url) => controller.onLoadStart(url),
               onLoadStop: (_, url) => controller.onLoadStop(url),
+              onProgressChanged: (_, progress) => controller.onProgress(progress),
               onReceivedError: (_, request, __) {
                 if (request.isForMainFrame ?? false) {
                   controller.onMainFrameError();

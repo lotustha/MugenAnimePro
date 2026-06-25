@@ -111,27 +111,30 @@ class WatchController extends GetxController {
   /// flutter_inappwebview supports content blockers, these requests are dropped
   /// before they load — the real fix plain webview_flutter couldn't do.
   static const List<String> _adHostPatterns = [
-    // Throwaway TLDs used by the rotating banner/pop ad networks in these
-    // embeds. The ad hosts have random names that change every session, but
-    // they all sit on these cheap TLDs — and no legitimate video resource here
-    // uses them (the player/CDNs are .fun/.top/.buzz/ani.zip/thetvdb.com), so
-    // blocking the whole TLD is safe and survives the rotation.
-    r'\.cfd', r'\.cyou', r'\.sbs', r'\.shop', r'\.bond', r'\.quest', r'\.click',
+    // Throwaway TLDs serving the banner/pop ads. These are matched against the
+    // URL's HOST only (see the anchored regex below) — critical, because video
+    // segments are proxied as `…/ts-proxy?url=https://X.lumiflow.click/…`, so a
+    // substring match would wrongly block the (legit) proxied video.
+    // NOT .click: lumiflow.click is a real video-segment CDN.
+    r'\.cfd', r'\.cyou', r'\.shop',
     // Stable ad hosts observed in the resource log / earlier analysis.
     r'lacisaboma\.com', r'casteschagoma\.com', r'firevideoplayer\.com',
-    // Known pop-ad / ad networks (belt-and-suspenders).
+    // Known pop-ad / ad networks.
     r'popads', r'popcash', r'poptm', r'popunder',
-    r'propellerads', r'propu\.', r'pushwhy',
+    r'propellerads', r'pushwhy',
     r'adsterra', r'hilltopads', r'onclicka', r'onclckbn',
     r'monetag', r'clickadu', r'adnium', r'adskeeper',
     r'highperformanceformat', r'profitabledisplay', r'effectivegate',
-    r'a-ads', r'adnxs', r'adservme', r'adsco\.re',
+    r'adnxs', r'adservme', r'adsco\.re',
   ];
 
   static final List<ContentBlocker> adBlockers = [
     for (final p in _adHostPatterns)
       ContentBlocker(
-        trigger: ContentBlockerTrigger(urlFilter: '.*$p.*'),
+        // Anchor to scheme://host so the pattern only matches the request HOST,
+        // never a path/query (which can legitimately contain an ad-looking
+        // string, e.g. the ts-proxy video URL above).
+        trigger: ContentBlockerTrigger(urlFilter: '^https?://[^/?#]*$p'),
         action: ContentBlockerAction(type: ContentBlockerActionType.BLOCK),
       ),
   ];
@@ -227,9 +230,17 @@ class WatchController extends GetxController {
 
   void onLoadStop(WebUri? url) {
     playerLoading.value = false;
-    // The real embed loaded — cancel the failover timer (the blank reset page
-    // also fires this, so only the real URL counts).
-    if (url != null && url.toString() != 'about:blank') _loadTimeout?.cancel();
+    _loadTimeout?.cancel();
+  }
+
+  /// Safety net: some embeds finish without a reliable onLoadStop. When the
+  /// main page reports full progress, treat it as loaded so the spinner can't
+  /// stick over a (working) player.
+  void onProgress(int progress) {
+    if (progress >= 100) {
+      playerLoading.value = false;
+      _loadTimeout?.cancel();
+    }
   }
 
   void onMainFrameError() => _onServerFailed();
@@ -434,17 +445,16 @@ class WatchController extends GetxController {
       _pendingServer = server; // load once the WebView is created
       return;
     }
-    // Reset before loading so the previous <video>'s surface is released.
-    web.loadUrl(urlRequest: URLRequest(url: WebUri('about:blank')));
-    Future.delayed(const Duration(milliseconds: 150), () {
-      _loadTimeout = Timer(_serverTimeout, () {
-        if (playerLoading.value) _onServerFailed(timedOut: true);
-      });
-      web.loadUrl(urlRequest: URLRequest(
-        url: WebUri(url),
-        headers: server.headers,
-      ));
+    // Load the embed directly. (inappwebview replaces the page itself, so the
+    // webview_flutter-era about:blank double-load isn't needed — and that race
+    // could leave onLoadStop unfired, sticking the spinner.)
+    _loadTimeout = Timer(_serverTimeout, () {
+      if (playerLoading.value) _onServerFailed(timedOut: true);
     });
+    web.loadUrl(urlRequest: URLRequest(
+      url: WebUri(url),
+      headers: server.headers,
+    ));
   }
 
   /// Record the episode for "continue watching".
