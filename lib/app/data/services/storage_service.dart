@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
 
+import '../../core/constants/api_constants.dart';
 import '../models/anime.dart';
 import '../models/watch_progress.dart';
 
@@ -9,13 +10,19 @@ import '../models/watch_progress.dart';
 ///
 /// Exposes reactive lists so the UI updates instantly on change.
 class StorageService extends GetxService {
-  static const _favoritesKey = 'favorites';
-  static const _progressKey = 'watch_progress';
+  // Favorites / history / watched / reminders are namespaced PER PROVIDER, so
+  // switching the streaming provider (Remote Config) gives a fresh set without
+  // destroying the old one — switch back and the data is restored. Anime IDs
+  // differ across providers, so a shared store wouldn't resolve anyway.
+  String get _favoritesKey => 'favorites_${ApiConstants.provider}';
+  String get _progressKey => 'watch_progress_${ApiConstants.provider}';
+  String get _watchedKey => 'watched_episodes_${ApiConstants.provider}';
+  String get _notifyKey => 'notify_anime_${ApiConstants.provider}';
+
+  // Preferences are global (provider-independent).
   static const _preferDubKey = 'prefer_dub';
   static const _preferredLanguageKey = 'preferred_language';
   static const _episodesAscendingKey = 'episodes_ascending';
-  static const _watchedKey = 'watched_episodes';
-  static const _notifyKey = 'notify_anime';
 
   final GetStorage _box = GetStorage();
 
@@ -31,11 +38,40 @@ class StorageService extends GetxService {
       <String, Map<String, String>>{}.obs;
 
   Future<StorageService> init() async {
+    _migrateLegacyKeys();
     _loadFavorites();
     _loadProgress();
     _loadWatched();
     _loadNotify();
     return this;
+  }
+
+  /// One-time migration: the app shipped with un-namespaced keys and `animelok`
+  /// as the default provider, so move any legacy global data into the animelok
+  /// namespace (copied, not deleted) so existing users keep their favorites.
+  void _migrateLegacyKeys() {
+    const map = {
+      'favorites': 'favorites_animelok',
+      'watch_progress': 'watch_progress_animelok',
+      'watched_episodes': 'watched_episodes_animelok',
+      'notify_anime': 'notify_anime_animelok',
+    };
+    map.forEach((oldK, newK) {
+      if (_box.hasData(oldK) && !_box.hasData(newK)) {
+        _box.write(newK, _box.read(oldK));
+      }
+    });
+  }
+
+  /// Reload all per-provider lists (called when the API provider changes). The
+  /// previous provider's data stays on disk under its own keys, untouched.
+  void reloadForProvider() {
+    _watched.clear();
+    notifyAnime.clear();
+    _loadFavorites();
+    _loadProgress();
+    _loadWatched();
+    _loadNotify();
   }
 
   // ---------------------------------------------------------------- favorites

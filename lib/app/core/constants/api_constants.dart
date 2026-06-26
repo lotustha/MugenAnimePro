@@ -11,7 +11,11 @@
 class ApiConstants {
   ApiConstants._();
 
-  static const String baseUrl = 'https://api.mugenstream.fun';
+  // NOT const — overridable at runtime from Remote Config (mugenpro_api_base_url)
+  // so the streaming API host can be moved without an app update. When it
+  // changes after the Dio client is built, RemoteSettingsService also updates
+  // the live ApiClient's base URL.
+  static String baseUrl = 'https://api.mugenstream.fun';
   static String provider = 'animelok';
 
   /// Mugenstream website (posts, wallpapers, in-app messages, FCM token

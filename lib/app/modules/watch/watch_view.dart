@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:get/get.dart';
 
@@ -12,6 +13,20 @@ class WatchView extends GetView<WatchController> {
 
   @override
   Widget build(BuildContext context) {
+    // System bars follow orientation: shown while browsing (portrait), hidden in
+    // landscape fullscreen. Re-asserted on every rebuild so the status bar
+    // reliably reappears after exiting the player's native fullscreen.
+    final portrait = MediaQuery.of(context).orientation == Orientation.portrait;
+    if (portrait) {
+      // `manual` + both overlays explicitly *re-shows* the bars and clears the
+      // sticky-immersive flags from fullscreen. Plain edgeToEdge does NOT clear
+      // immersiveSticky on Android 15/16, leaving the status bar hidden after
+      // exiting fullscreen.
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+          overlays: SystemUiOverlay.values);
+    } else {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    }
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -22,29 +37,31 @@ class WatchView extends GetView<WatchController> {
       child: Scaffold(
         backgroundColor: AppTheme.background,
         body: SafeArea(
+          // Keep a single, structurally stable layout across rotation. Swapping
+          // structure (e.g. Column→Row) on rotation would remount the player's
+          // platform-view WebView, disposing the native WebView that owns the
+          // fullscreen video surface mid-fullscreen → frozen landscape. So the
+          // tree shape is identical in both orientations; only the player height
+          // changes. Cap it to the available height so a full-width 16:9 player
+          // can't overflow the Column in landscape (where it's covered by the
+          // native fullscreen view anyway).
           child: LayoutBuilder(
-              builder: (context, constraints) {
-                // On wide landscape screens put player + details side-by-side.
-                final wide = constraints.maxWidth >= 720 &&
-                    constraints.maxWidth > constraints.maxHeight;
-                if (wide) {
-                  return Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 3, child: Center(child: _player())),
-                      Expanded(flex: 2, child: _details()),
-                    ],
-                  );
-                }
-                return Column(
-                  children: [
-                    _player(),
-                    Expanded(child: _details()),
-                  ],
-                );
-              },
-            ),
+            builder: (context, constraints) {
+              final playerHeight =
+                  (constraints.maxWidth * 9 / 16).clamp(0.0, constraints.maxHeight);
+              return Column(
+                children: [
+                  SizedBox(
+                    width: constraints.maxWidth,
+                    height: playerHeight,
+                    child: _player(),
+                  ),
+                  Expanded(child: _details()),
+                ],
+              );
+            },
           ),
+        ),
         ),
     );
   }
@@ -100,6 +117,7 @@ class WatchView extends GetView<WatchController> {
           fit: StackFit.expand,
           children: [
             InAppWebView(
+              key: controller.playerWebViewKey,
               initialSettings: controller.webSettings,
               initialUserScripts: controller.userScripts,
               onWebViewCreated: controller.onWebViewCreated,
@@ -292,6 +310,10 @@ class WatchView extends GetView<WatchController> {
         return 'Japanese (Sub)';
       case 'english':
         return 'English (Dub)';
+      case 'sub':
+        return 'Sub';
+      case 'dub':
+        return 'Dub';
       case '':
         return 'Default';
       default:

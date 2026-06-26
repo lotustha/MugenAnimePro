@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../core/theme/app_theme.dart';
-import '../../data/models/anime.dart';
 import '../../data/models/post.dart';
 import '../../data/models/spotlight_item.dart';
 import '../../data/models/wallpaper.dart';
@@ -12,6 +11,7 @@ import '../../routes/app_pages.dart';
 import '../wallpapers/wallpaper_card.dart';
 import '../../widgets/anime_card.dart';
 import '../../widgets/continue_watching_rail.dart';
+import '../../widgets/native_ad_card.dart';
 import '../../widgets/resume_card.dart';
 import '../../widgets/section_header.dart';
 import '../../widgets/state_views.dart';
@@ -45,21 +45,49 @@ class HomeView extends GetView<HomeController> {
             onRetry: controller.load,
           );
         }
+        final recent = controller.recent;
         return RefreshIndicator(
           onRefresh: controller.load,
-          child: ListView(
-            children: [
+          // CustomScrollView so the "Recently Updated" grid virtualizes as a
+          // real SliverGrid (only on-screen cards build) instead of the old
+          // shrink-wrapped GridView that eager-built every card up front.
+          child: CustomScrollView(
+            slivers: [
               if (controller.spotlight.isNotEmpty)
-                SpotlightCarousel(
-                  items: controller.spotlight,
-                  onTap: (SpotlightItem s) => _openDetail(s.id),
+                SliverToBoxAdapter(
+                  child: SpotlightCarousel(
+                    items: controller.spotlight,
+                    onTap: (SpotlightItem s) => _openDetail(s.id),
+                  ),
                 ),
-              _continueWatching(),
-              const SectionHeader(title: 'Recently Updated'),
-              _recentGrid(controller.recent),
-              _latestNews(),
-              _latestWallpapers(),
-              const SizedBox(height: 24),
+              SliverToBoxAdapter(child: _continueWatching()),
+              const SliverToBoxAdapter(
+                  child: SectionHeader(title: 'Recently Updated')),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                sliver: SliverGrid(
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 150,
+                    childAspectRatio: 0.52,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 12,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (_, i) => AnimeCard(
+                      anime: recent[i],
+                      width: 150,
+                      onTap: () => _openDetail(recent[i].id),
+                    ),
+                    childCount: recent.length,
+                  ),
+                ),
+              ),
+              // In-feed native ad (self-hides when ads off / no native fill).
+              const SliverToBoxAdapter(child: NativeAdCard()),
+              SliverToBoxAdapter(child: _latestNews()),
+              SliverToBoxAdapter(child: _latestWallpapers()),
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
           ),
         );
@@ -160,25 +188,6 @@ class HomeView extends GetView<HomeController> {
     });
   }
 
-  Widget _recentGrid(List<Anime> items) {
-    return GridView.builder(
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      itemCount: items.length,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 150,
-        childAspectRatio: 0.52,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 12,
-      ),
-      itemBuilder: (_, i) => AnimeCard(
-        anime: items[i],
-        width: 150,
-        onTap: () => _openDetail(items[i].id),
-      ),
-    );
-  }
 }
 
 /// Compact news card for the home "Latest News" rail.
@@ -248,7 +257,8 @@ class _WallpaperRailCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (wallpaper.isVideo)
-              WallpaperVideoPreview(url: wallpaper.fileUrl)
+              WallpaperVideoPreview(
+                  key: ValueKey(wallpaper.fileUrl), url: wallpaper.fileUrl)
             else
               CachedNetworkImage(
                 imageUrl: wallpaper.fileUrl,

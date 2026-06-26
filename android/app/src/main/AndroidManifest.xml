@@ -71,6 +71,12 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="general" />
+        <!-- AdMob application ID (provider switch handled at runtime via the
+             mugenpro_ads_provider Remote Config key; this manifest entry is
+             required by the SDK and can't be remote). -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-1368455939381864~6115946233" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

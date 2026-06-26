@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../core/theme/app_theme.dart';
+import '../../data/services/ads_service.dart';
 import 'settings_controller.dart';
 
 class SettingsView extends GetView<SettingsController> {
@@ -71,6 +72,30 @@ class SettingsView extends GetView<SettingsController> {
                   url: s.discordUrl.value,
                   onTap: controller.open,
                 )),
+            // Rewarded "support" ad — only when an ad provider is active.
+            Obx(() {
+              if (s.adsProvider.value == 'none') return const SizedBox.shrink();
+              return ListTile(
+                leading: const Icon(Icons.card_giftcard, color: AppTheme.primary),
+                title: const Text('Support us'),
+                subtitle: const Text('Watch a short ad to support the app'),
+                trailing: const Icon(Icons.play_circle_outline,
+                    color: Colors.white38),
+                onTap: () async {
+                  final earned = await Get.find<AdsService>().showRewarded();
+                  Get.snackbar(
+                    earned ? 'Thank you!' : 'No ad available',
+                    earned
+                        ? 'Your support keeps the app running. 💛'
+                        : 'Please try again in a moment.',
+                    snackPosition: SnackPosition.BOTTOM,
+                    backgroundColor: AppTheme.surface,
+                    colorText: Colors.white,
+                    margin: const EdgeInsets.all(12),
+                  );
+                },
+              );
+            }),
             const _SectionLabel('About'),
             Obx(() => ListTile(
                   leading:
@@ -78,11 +103,12 @@ class SettingsView extends GetView<SettingsController> {
                   title: const Text('Version'),
                   subtitle: Text(controller.appVersion.value ?? '—'),
                 )),
-            ListTile(
-              leading: const Icon(Icons.dns_outlined, color: AppTheme.primary),
-              title: const Text('Streaming source'),
-              subtitle: Text(controller.providerName),
-            ),
+            Obx(() => ListTile(
+                  leading:
+                      const Icon(Icons.dns_outlined, color: AppTheme.primary),
+                  title: const Text('Streaming source'),
+                  subtitle: Text(s.animeProvider.value),
+                )),
             const SizedBox(height: 24),
           ],
         ),

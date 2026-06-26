@@ -20,6 +20,11 @@ class ApiClient {
               },
             ));
 
+  /// Update the live base URL (called when Remote Config supplies a new host).
+  void setBaseUrl(String url) {
+    if (url.isNotEmpty) _dio.options.baseUrl = url;
+  }
+
   /// GET a path returning a JSON object.
   Future<Map<String, dynamic>> getObject(
     String path, {

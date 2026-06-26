@@ -10,6 +10,7 @@ import 'package:video_player/video_player.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/wallpaper.dart';
 import '../../data/repositories/content_repository.dart';
+import '../../data/services/ads_service.dart';
 
 class WallpaperDetailBinding extends Bindings {
   @override
@@ -73,9 +74,18 @@ class WallpaperDetailController extends GetxController {
     }
   }
 
+  /// Show a rewarded ad before a download/set action (fail-open: if no ad is
+  /// available the action proceeds anyway, so users are never hard-blocked).
+  Future<void> _adGate() async {
+    if (Get.isRegistered<AdsService>()) {
+      await Get.find<AdsService>().showRewarded();
+    }
+  }
+
   Future<void> download() async {
     final w = wallpaper.value;
     if (w == null || downloading.value) return;
+    await _adGate();
     downloading.value = true;
     try {
       final has = await Gal.hasAccess();
@@ -119,6 +129,7 @@ class WallpaperDetailController extends GetxController {
   Future<void> setLiveWallpaper() async {
     final w = wallpaper.value;
     if (w == null || !w.isVideo || settingWallpaper.value) return;
+    await _adGate();
     settingWallpaper.value = true;
     try {
       final dir = await getApplicationSupportDirectory();
@@ -151,6 +162,7 @@ class WallpaperDetailController extends GetxController {
       _snack('Not supported', 'Use "Set live" for video wallpapers.');
       return;
     }
+    await _adGate();
     settingWallpaper.value = true;
     try {
       final dir = await getTemporaryDirectory();

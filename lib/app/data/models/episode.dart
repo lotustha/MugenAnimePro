@@ -10,6 +10,10 @@ class Episode {
   final bool isSubbed;
   final bool isDubbed;
 
+  /// API-driven lock flag: a locked episode is gated behind a rewarded ad until
+  /// the user unlocks it (see WatchController). Accepts `locked` or `isLocked`.
+  final bool locked;
+
   const Episode({
     required this.id,
     required this.number,
@@ -17,6 +21,7 @@ class Episode {
     this.isFiller = false,
     this.isSubbed = true,
     this.isDubbed = false,
+    this.locked = false,
   });
 
   factory Episode.fromJson(Map<String, dynamic> json) {
@@ -27,6 +32,7 @@ class Episode {
       isFiller: json['isFiller'] == true,
       isSubbed: json['isSubbed'] != false,
       isDubbed: json['isDubbed'] == true,
+      locked: json['locked'] == true || json['isLocked'] == true,
     );
   }
 

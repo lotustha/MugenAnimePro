@@ -12,7 +12,9 @@ import '../../data/models/episode.dart';
 import '../../data/models/watch_progress.dart';
 import '../../data/models/watch_response.dart';
 import '../../data/repositories/anime_repository.dart';
+import '../../data/services/ads_service.dart';
 import '../../data/services/notification_service.dart';
+import '../../data/services/remote_settings_service.dart';
 import '../../data/services/storage_service.dart';
 import 'watch_args.dart';
 
@@ -26,6 +28,13 @@ class WatchController extends GetxController {
 
   /// Set once the InAppWebView is created (see [onWebViewCreated]).
   InAppWebViewController? _web;
+
+  /// Stable key for the player's [InAppWebView] platform view. Keeping the same
+  /// key across rebuilds stops Flutter from remounting (disposing + recreating)
+  /// the native WebView when the layout changes on rotation — a remount during
+  /// native HTML5 fullscreen disposes the WebView that owns the fullscreen video
+  /// surface, freezing it in landscape.
+  final GlobalKey playerWebViewKey = GlobalKey();
 
   /// Whether the watch metadata (server list) is being fetched.
   final RxBool loading = true.obs;
@@ -65,9 +74,14 @@ class WatchController extends GetxController {
   final FocusNode episodeSearchFocus = FocusNode();
 
   /// Episodes filtered by [episodeQuery] (matches number or title) and ordered
-  /// by [episodesAscending]. The view renders this through a virtualised
-  /// builder, so only on-screen rows are built — no lag on huge lists.
-  List<Episode> get visibleEpisodes {
+  /// by [episodesAscending]. Maintained by [_recomputeVisible] (wired to debounced
+  /// query + sort workers in [onInit]) instead of recomputed on every rebuild —
+  /// the filter+sort is O(n log n) and `episodes` can be 1000+ (One Piece), so
+  /// recomputing per Next/Prev/watched tap dropped frames. The view renders this
+  /// through a virtualised builder, so only on-screen rows are built.
+  final RxList<Episode> visibleEpisodes = <Episode>[].obs;
+
+  void _recomputeVisible() {
     final q = episodeQuery.value.trim().toLowerCase();
     final list = q.isEmpty
         ? List<Episode>.of(episodes)
@@ -79,7 +93,7 @@ class WatchController extends GetxController {
     list.sort((a, b) => episodesAscending.value
         ? a.number.compareTo(b.number)
         : b.number.compareTo(a.number));
-    return list;
+    visibleEpisodes.assignAll(list);
   }
 
   void setEpisodeQuery(String q) => episodeQuery.value = q;
@@ -159,11 +173,23 @@ class WatchController extends GetxController {
     final args = Get.arguments as WatchArgs;
     anime = args.anime;
     episodes = args.episodes;
+    // Newest episode (highest number) — always gated behind a rewarded ad.
+    if (episodes.isNotEmpty) {
+      _newestEpisodeId =
+          episodes.reduce((a, b) => a.number >= b.number ? a : b).id;
+    }
     // Initial language preference: last-used, else dub→english / sub→japanese.
     selectedLanguage.value =
         _storage.preferredLanguage ?? (args.preferDub ? 'english' : 'japanese');
     watchedEpisodes.addAll(_storage.watchedEpisodeNumbers(anime.id));
     episodesAscending.value = _storage.episodesAscending; // remembered globally
+
+    // Maintain the filtered/sorted episode list off the rebuild path: recompute
+    // only when the query (debounced) or sort order actually changes.
+    _recomputeVisible();
+    debounce(episodeQuery, (_) => _recomputeVisible(),
+        time: const Duration(milliseconds: 200));
+    ever(episodesAscending, (_) => _recomputeVisible());
 
     WakelockPlus.enable(); // keep the screen on while watching
     _notifications.suppress(); // no reminders popping over the video
@@ -245,17 +271,23 @@ class WatchController extends GetxController {
 
   void onEnterFullscreen() {
     isFullscreen.value = true;
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations(const [
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   void onExitFullscreen() {
     isFullscreen.value = false;
+    // `manual` + all overlays reliably restores the status/nav bars and clears
+    // the sticky-immersive flags (edgeToEdge alone leaves them hidden on
+    // Android 15/16). The view's build() re-asserts this on the portrait frame.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
+    // Force back to portrait (not just allow it) so the screen rotates down on
+    // its own when the user leaves fullscreen.
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   }
 
   /// Exit HTML5 fullscreen (driven by the Android back button). Returns true if
@@ -268,6 +300,11 @@ class WatchController extends GetxController {
   }
 
   // ─── Language / server selection ────────────────────────────────────────────
+
+  /// True for providers that expose audio as Sub/Dub (anizen, anivid) instead
+  /// of a `languages` array (animelok). In this mode switching audio refetches
+  /// the watch endpoint with `?type=sub|dub` rather than client-side filtering.
+  bool _subDubMode = false;
 
   void _resolveSelectedLanguage() {
     final avail = availableLanguages;
@@ -298,13 +335,38 @@ class WatchController extends GetxController {
     if (selectedLanguage.value == lang) return;
     selectedLanguage.value = lang;
     _storage.preferredLanguage = lang;
-    if (lang == 'english') {
+    if (lang == 'english' || lang == 'dub') {
       _storage.preferDub = true;
-    } else if (lang == 'japanese') {
+    } else if (lang == 'japanese' || lang == 'sub') {
       _storage.preferDub = false;
     }
-    _applyLanguageFilter();
-    if (servers.isNotEmpty) _playServer(0);
+    if (_subDubMode) {
+      _reloadSubDubServers(lang);
+    } else {
+      _applyLanguageFilter();
+      if (servers.isNotEmpty) _playServer(0);
+    }
+  }
+
+  /// Refetch the watch endpoint for a sub/dub provider when audio is toggled.
+  Future<void> _reloadSubDubServers(String type) async {
+    final ep = current.value;
+    if (ep == null) return;
+    loading.value = true;
+    error.value = null;
+    servers.clear();
+    try {
+      final w = await _repo.watch(ep.id, type: type);
+      _allServers = w.servers.where((s) => s.embedUrl != null).toList();
+      if (_allServers.isEmpty) throw 'No $type server for this episode.';
+      servers.assignAll(_allServers);
+      selectedServer.value = 0;
+      loading.value = false;
+      _playServer(0);
+    } catch (e) {
+      error.value = '$e';
+      loading.value = false;
+    }
   }
 
   int get _currentIndex {
@@ -364,20 +426,60 @@ class WatchController extends GetxController {
     }
   }
 
+  /// Episodes unlocked via a rewarded ad this session (so we don't re-prompt).
+  final Set<String> _unlockedEpisodes = {};
+
+  /// Id of the newest episode — always rewarded while locking is enabled.
+  String? _newestEpisodeId;
+
+  /// Show an ad on EVERY episode open. While locking is enabled
+  /// (`mugenpro_ads_rewarded_unlock`, the remote master switch):
+  ///   • the newest episode ALWAYS shows a rewarded ad,
+  ///   • an API-locked episode (`episode.locked`) shows a rewarded ad until the
+  ///     user unlocks it this session, after which it shows an interstitial,
+  ///   • every other episode shows an interstitial.
+  /// With locking disabled, every open shows an interstitial. Fail-open: a
+  /// no-fill ad never blocks playback.
+  Future<void> _maybeShowEpisodeAd(Episode ep) async {
+    if (!Get.isRegistered<AdsService>()) return;
+    final ads = Get.find<AdsService>();
+    final lockMode = Get.isRegistered<RemoteSettingsService>() &&
+        Get.find<RemoteSettingsService>().rewardedUnlock.value;
+    final isNewest = ep.id == _newestEpisodeId;
+    final showReward = lockMode &&
+        (isNewest || (ep.locked && !_unlockedEpisodes.contains(ep.id)));
+    if (showReward) {
+      final earned = await ads.showRewarded();
+      // Newest stays gated forever; other locked episodes unlock once watched.
+      if (earned && !isNewest) _unlockedEpisodes.add(ep.id);
+    } else {
+      ads.showInterstitialNow();
+    }
+  }
+
   Future<void> _loadEpisode(Episode ep) async {
+    await _maybeShowEpisodeAd(ep);
     loading.value = true;
     error.value = null;
     current.value = ep;
     servers.clear();
     try {
       final watch = await _repo.watch(ep.id);
-      _allServers = watch.servers.where((s) => s.embedUrl != null).toList();
-      if (_allServers.isEmpty) {
-        throw 'No playable server for this episode.';
+      if (watch.languages.isNotEmpty) {
+        // Multi-language provider (animelok): every audio track is in this one
+        // response; filter client-side by language.
+        _subDubMode = false;
+        _allServers = watch.servers.where((s) => s.embedUrl != null).toList();
+        if (_allServers.isEmpty) throw 'No playable server for this episode.';
+        availableLanguages.assignAll(watch.languages);
+        _resolveSelectedLanguage();
+        _applyLanguageFilter();
+      } else {
+        // Sub/Dub provider (anizen, anivid): type=all is the sub track; dub is a
+        // separate fetch. Offer the toggle when the episode has a dub.
+        _subDubMode = true;
+        await _setupSubDub(ep, watch);
       }
-      availableLanguages.assignAll(watch.languages);
-      _resolveSelectedLanguage();
-      _applyLanguageFilter();
       loading.value = false;
       _saveProgress(ep);
       _storage.markEpisodeWatched(anime.id, ep.number);
@@ -387,6 +489,30 @@ class WatchController extends GetxController {
       error.value = '$e';
       loading.value = false;
     }
+  }
+
+  /// Configure audio options + servers for a sub/dub provider. [subWatch] is the
+  /// already-fetched type=all (== sub) response.
+  Future<void> _setupSubDub(Episode ep, WatchResponse subWatch) async {
+    final subServers =
+        subWatch.servers.where((s) => s.embedUrl != null).toList();
+    final subAvail = subServers.isNotEmpty;
+    final dubAvail = ep.isDubbed;
+    availableLanguages.assignAll([
+      if (subAvail) 'sub',
+      if (dubAvail) 'dub',
+    ]);
+    final wantDub = _storage.preferDub && dubAvail;
+    selectedLanguage.value = wantDub ? 'dub' : (subAvail ? 'sub' : 'dub');
+    if (selectedLanguage.value == 'dub') {
+      final dubWatch = await _repo.watch(ep.id, type: 'dub');
+      _allServers = dubWatch.servers.where((s) => s.embedUrl != null).toList();
+    } else {
+      _allServers = subServers;
+    }
+    if (_allServers.isEmpty) throw 'No playable server for this episode.';
+    servers.assignAll(_allServers);
+    selectedServer.value = 0;
   }
 
   void _loadEmbed(WatchServer server) {
@@ -443,8 +569,9 @@ class WatchController extends GetxController {
     episodeSearchFocus.dispose();
     WakelockPlus.disable();
     _notifications.resume();
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
     SystemChrome.setPreferredOrientations(const [DeviceOrientation.portraitUp]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     super.onClose();
   }
 }

@@ -7,6 +7,7 @@ import 'package:media_kit/media_kit.dart';
 
 import 'app/core/bindings/initial_binding.dart';
 import 'app/core/theme/app_theme.dart';
+import 'app/data/services/ads_service.dart';
 import 'app/data/services/inapp_message_service.dart';
 import 'app/data/services/notification_service.dart';
 import 'app/data/services/push_service.dart';
@@ -31,13 +32,34 @@ Future<void> main() async {
     // No google-services.json / Play Services — app runs without push.
   }
 
+  // Storage must be ready before the first frame (Home/Library/Detail read it).
   await Get.putAsync<StorageService>(() => StorageService().init());
-  await Get.putAsync<NotificationService>(() => NotificationService().init());
-  await Get.putAsync<RemoteSettingsService>(() => RemoteSettingsService().init());
-  await Get.putAsync<PushService>(() => PushService().init());
-  await Get.putAsync<InAppMessageService>(() => InAppMessageService().init());
+  // Needed by the first post-frame work (reminders + remote config). Run them
+  // concurrently instead of one-after-another.
+  await Future.wait([
+    Get.putAsync<NotificationService>(() => NotificationService().init()),
+    Get.putAsync<RemoteSettingsService>(() => RemoteSettingsService().init()),
+  ]);
+  // Push + in-app messaging do a permission prompt and network round-trips that
+  // must NOT gate first paint. Register them now (so Get.find works) and run
+  // their init() once the UI is on screen.
+  Get.put<PushService>(PushService(), permanent: true);
+  Get.put<InAppMessageService>(InAppMessageService(), permanent: true);
+  // Ads SDK init (MobileAds.initialize) is also off the first-paint path.
+  Get.put<AdsService>(AdsService(), permanent: true);
 
   runApp(const AnimeStreamApp());
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    // Start the ads SDK + preload first and concurrently — it must NOT wait on
+    // push (permission prompt + FCM network), or a rewarded ad won't be ready
+    // when the user reaches it.
+    Get.find<AdsService>().init();
+    await Get.find<PushService>().init();
+    Get.find<PushService>().flushInitialMessage();
+    await Get.find<InAppMessageService>().init();
+    Get.find<InAppMessageService>().maybeShowOnLaunch();
+  });
 }
 
 class AnimeStreamApp extends StatelessWidget {
