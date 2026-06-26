@@ -21,11 +21,22 @@ class PosterImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (url.isEmpty) return _fallback();
+    // Decode and cache at roughly the displayed pixel size instead of the full
+    // source resolution. A 600×900 poster shown in a 130px slot otherwise costs
+    // ~2MB of RAM per copy and thrashes the image cache; this cuts it ~10×.
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    final cacheW = width != null ? (width! * dpr).round() : null;
+    final cacheH =
+        (width == null && height != null) ? (height! * dpr).round() : null;
     return CachedNetworkImage(
       imageUrl: url,
       width: width,
       height: height,
       fit: fit,
+      memCacheWidth: cacheW,
+      memCacheHeight: cacheH,
+      maxWidthDiskCache: cacheW,
+      maxHeightDiskCache: cacheH,
       placeholder: (_, __) => Container(
         width: width,
         height: height,

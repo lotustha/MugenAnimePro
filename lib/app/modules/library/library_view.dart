@@ -39,34 +39,42 @@ class LibraryView extends StatelessWidget {
             icon: Icons.video_library_outlined,
           );
         }
-        return ListView(
-          children: [
+        // CustomScrollView so the favorites grid virtualizes as a SliverGrid
+        // instead of a shrink-wrapped GridView that builds every card at once.
+        return CustomScrollView(
+          slivers: [
             if (continueWatching.isNotEmpty) ...[
-              const SectionHeader(title: 'Continue Watching'),
-              ContinueWatchingRail(items: continueWatching),
+              const SliverToBoxAdapter(
+                  child: SectionHeader(title: 'Continue Watching')),
+              SliverToBoxAdapter(
+                  child: ContinueWatchingRail(items: continueWatching)),
             ],
             if (favorites.isNotEmpty) ...[
-              const SectionHeader(title: 'Favorites'),
-              GridView.builder(
+              const SliverToBoxAdapter(
+                  child: SectionHeader(title: 'Favorites')),
+              SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: favorites.length,
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 150,
-                  childAspectRatio: 0.52,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 12,
-                ),
-                itemBuilder: (_, i) => AnimeCard(
-                  anime: favorites[i],
-                  width: 150,
-                  onTap: () =>
-                      Get.toNamed(Routes.detail, arguments: favorites[i].id),
+                sliver: SliverGrid(
+                  gridDelegate:
+                      const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 150,
+                    childAspectRatio: 0.52,
+                    crossAxisSpacing: 10,
+                    mainAxisSpacing: 12,
+                  ),
+                  delegate: SliverChildBuilderDelegate(
+                    (_, i) => AnimeCard(
+                      anime: favorites[i],
+                      width: 150,
+                      onTap: () => Get.toNamed(Routes.detail,
+                          arguments: favorites[i].id),
+                    ),
+                    childCount: favorites.length,
+                  ),
                 ),
               ),
             ],
-            const SizedBox(height: 24),
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         );
       }),

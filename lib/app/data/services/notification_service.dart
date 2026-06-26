@@ -1,7 +1,10 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:get/get.dart';
-import 'package:timezone/data/latest_all.dart' as tzdata;
+// 10-year transition window instead of `latest_all`: covers every zone but a
+// far smaller transition table, so the DB loads faster at startup. Plenty for
+// scheduling near-future episode reminders.
+import 'package:timezone/data/latest_10y.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../core/notifications/notification_router.dart';

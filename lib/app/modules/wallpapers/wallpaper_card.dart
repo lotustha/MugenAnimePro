@@ -24,7 +24,8 @@ class WallpaperCard extends StatelessWidget {
           fit: StackFit.expand,
           children: [
             if (wallpaper.isVideo)
-              WallpaperVideoPreview(url: wallpaper.fileUrl)
+              WallpaperVideoPreview(
+                  key: ValueKey(wallpaper.fileUrl), url: wallpaper.fileUrl)
             else
               CachedNetworkImage(
                 imageUrl: wallpaper.fileUrl,
@@ -59,8 +60,16 @@ class WallpaperVideoPreview extends StatefulWidget {
 }
 
 class _WallpaperVideoPreviewState extends State<WallpaperVideoPreview> {
+  // Cap concurrent hardware video decoders app-wide. Android's MediaCodec
+  // ceiling (~8–16) is shared with the real player; unbounded grid + rail
+  // previews can exceed it, fail initialize(), and crash other decoders. Cards
+  // beyond the cap show the static placeholder and decode nothing.
+  static const int _maxConcurrent = 4;
+  static int _active = 0;
+
   VideoPlayerController? _controller;
   bool _ready = false;
+  bool _slotTaken = false;
 
   @override
   void initState() {
@@ -69,12 +78,16 @@ class _WallpaperVideoPreviewState extends State<WallpaperVideoPreview> {
   }
 
   Future<void> _init() async {
+    if (_active >= _maxConcurrent) return; // no free decoder slot → placeholder
+    _active++;
+    _slotTaken = true;
     try {
       final c = VideoPlayerController.networkUrl(Uri.parse(widget.url));
       _controller = c;
       await c.initialize();
       if (!mounted) {
         c.dispose();
+        _controller = null;
         return;
       }
       await c.setLooping(true);
@@ -89,6 +102,7 @@ class _WallpaperVideoPreviewState extends State<WallpaperVideoPreview> {
   @override
   void dispose() {
     _controller?.dispose();
+    if (_slotTaken) _active--;
     super.dispose();
   }
 

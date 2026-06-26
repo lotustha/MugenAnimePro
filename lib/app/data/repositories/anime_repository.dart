@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../core/constants/api_constants.dart';
 import '../models/anime.dart';
 import '../models/anime_info.dart';
@@ -13,6 +15,12 @@ class AnimeRepository {
   final ApiClient _client;
 
   AnimeRepository(this._client);
+
+  /// Short-lived cache for [info]: the same detail payload is fetched from both
+  /// the Home "Continue" button and the Detail screen (and on every re-entry),
+  /// so a brief TTL kills the duplicate round-trips + re-parse.
+  final Map<String, ({DateTime at, AnimeInfo data})> _infoCache = {};
+  static const _infoTtl = Duration(minutes: 5);
 
   Future<List<SpotlightItem>> spotlight() async {
     final json = await _client.getObject(ApiConstants.spotlight());
@@ -40,8 +48,17 @@ class AnimeRepository {
   }
 
   Future<AnimeInfo> info(String id) async {
+    final hit = _infoCache[id];
+    if (hit != null && DateTime.now().difference(hit.at) < _infoTtl) {
+      return hit.data;
+    }
     final json = await _client.getObject(ApiConstants.info(id));
-    return AnimeInfo.fromJson(json);
+    // Parse off the UI isolate: for long series the episode/recommendation/
+    // relation mapping is large enough to drop frames during the detail-open
+    // navigation. dio already decodes the raw JSON off-thread.
+    final data = await compute(_parseAnimeInfo, json);
+    _infoCache[id] = (at: DateTime.now(), data: data);
+    return data;
   }
 
   /// Streaming sources for an episode. By default fetches EVERY audio language
@@ -84,3 +101,6 @@ class AnimeRepository {
     return PagedResult.fromJson(json, Anime.fromJson);
   }
 }
+
+/// Top-level so it can run in a background isolate via `compute`.
+AnimeInfo _parseAnimeInfo(Map<String, dynamic> json) => AnimeInfo.fromJson(json);

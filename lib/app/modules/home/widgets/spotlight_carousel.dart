@@ -54,7 +54,7 @@ class _SpotlightCarouselState extends State<SpotlightCarousel> {
             controller: _controller,
             itemCount: widget.items.length,
             onPageChanged: (i) => setState(() => _page = i),
-            itemBuilder: (_, i) => _slide(widget.items[i]),
+            itemBuilder: (ctx, i) => _slide(ctx, widget.items[i]),
           ),
           Positioned(
             bottom: 12,
@@ -80,13 +80,15 @@ class _SpotlightCarouselState extends State<SpotlightCarousel> {
     );
   }
 
-  Widget _slide(SpotlightItem item) {
+  Widget _slide(BuildContext context, SpotlightItem item) {
     return GestureDetector(
       onTap: () => widget.onTap(item),
       child: Stack(
         fit: StackFit.expand,
         children: [
-          PosterImage(url: item.banner),
+          // Banner fills the carousel width; size the decode to the screen so a
+          // ~1280px source isn't kept full-res in memory for every adjacent page.
+          PosterImage(url: item.banner, width: MediaQuery.sizeOf(context).width),
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
