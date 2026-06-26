@@ -1,0 +1,66 @@
+{
+  "parameters": {
+    "mugenpro_ads_provider": {
+      "defaultValue": { "value": "admob" },
+      "description": "Ad provider switch: admob | none",
+      "valueType": "STRING"
+    },
+    "mugenpro_ads_rewarded_unlock": {
+      "defaultValue": { "value": "true" },
+      "description": "Master lock switch. true = newest episode always rewarded, API-locked episodes rewarded until unlocked, rest interstitial. false = every episode open is an interstitial.",
+      "valueType": "BOOLEAN"
+    },
+    "mugenpro_ads_interstitial_every": {
+      "defaultValue": { "value": "3" },
+      "description": "(Legacy / unused) was the every-Nth interstitial cap.",
+      "valueType": "NUMBER"
+    },
+    "mugenpro_admob_interstitial_id": {
+      "defaultValue": { "value": "ca-app-pub-1368455939381864/1285079930" },
+      "description": "AdMob interstitial ad unit ID.",
+      "valueType": "STRING"
+    },
+    "mugenpro_admob_rewarded_id": {
+      "defaultValue": { "value": "ca-app-pub-1368455939381864/2798683603" },
+      "description": "AdMob rewarded ad unit ID.",
+      "valueType": "STRING"
+    },
+    "mugenpro_admob_native_id": {
+      "defaultValue": { "value": "ca-app-pub-1368455939381864/4898233331" },
+      "description": "AdMob native ad unit ID (Home in-feed).",
+      "valueType": "STRING"
+    },
+    "mugenpro_api_base_url": {
+      "defaultValue": { "value": "" },
+      "description": "Override the streaming API host. Empty = keep app default (https://api.mugenstream.fun).",
+      "valueType": "STRING"
+    },
+    "mugenpro_anime_provider": {
+      "defaultValue": { "value": "animelok" },
+      "description": "Streaming backend provider (animelok | anivid | anizen | ...). Shown in Settings > Streaming source.",
+      "valueType": "STRING"
+    },
+    "support_url": {
+      "defaultValue": { "value": "" },
+      "description": "Settings > Support link.",
+      "valueType": "STRING"
+    },
+    "website_url": {
+      "defaultValue": { "value": "" },
+      "description": "Settings > Website link.",
+      "valueType": "STRING"
+    },
+    "facebook_url": {
+      "defaultValue": { "value": "" },
+      "description": "Settings > Facebook link.",
+      "valueType": "STRING"
+    },
+    "discord_url": {
+      "defaultValue": { "value": "" },
+      "description": "Settings > Discord link.",
+      "valueType": "STRING"
+    }
+  },
+  "parameterGroups": {},
+  "conditions": []
+}
