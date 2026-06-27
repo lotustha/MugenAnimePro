@@ -15,7 +15,11 @@ class SettingsView extends GetView<SettingsController> {
       appBar: AppBar(title: const Text('Settings')),
       body: RefreshIndicator(
         onRefresh: s.refresh,
-        child: ListView(
+        // Cap width so the settings list doesn't stretch edge-to-edge on tablets.
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720),
+            child: ListView(
           children: [
             const _SectionLabel('Playback'),
             Obx(() => SwitchListTile(
@@ -35,6 +39,52 @@ class SettingsView extends GetView<SettingsController> {
                   value: controller.newestFirst.value,
                   onChanged: controller.setNewestFirst,
                 )),
+            const _SectionLabel('Notifications'),
+            Obx(() => SwitchListTile(
+                  secondary: const Icon(Icons.notifications_active_outlined,
+                      color: AppTheme.primary),
+                  title: const Text('All notifications'),
+                  subtitle: Text(controller.notifAll.value
+                      ? 'Episode, wallpaper and news alerts are on'
+                      : 'All notifications are turned off'),
+                  value: controller.notifAll.value,
+                  onChanged: controller.setNotifAll,
+                )),
+            _NotifTile(
+              icon: Icons.new_releases_outlined,
+              title: 'New episodes',
+              subtitle: 'Alerts when new episodes are released',
+              valueOf: () => controller.notifEpisodes.value,
+              onChanged: controller.setNotifEpisodes,
+            ),
+            Obx(() {
+              final enabled =
+                  controller.notifAll.value && controller.notifEpisodes.value;
+              return SwitchListTile(
+                secondary: Icon(Icons.favorite_outline,
+                    color: enabled ? AppTheme.primary : Colors.white24),
+                title: const Text('Only my favorites'),
+                subtitle: const Text(
+                    'Episode alerts only for anime you favorited (else: all)'),
+                value: enabled && controller.notifFavoritesOnly.value,
+                onChanged:
+                    enabled ? controller.setNotifFavoritesOnly : null,
+              );
+            }),
+            _NotifTile(
+              icon: Icons.wallpaper,
+              title: 'Wallpapers',
+              subtitle: 'Alerts when new wallpapers are added',
+              valueOf: () => controller.notifWallpapers.value,
+              onChanged: controller.setNotifWallpapers,
+            ),
+            _NotifTile(
+              icon: Icons.article_outlined,
+              title: 'News',
+              subtitle: 'Alerts when new articles are posted',
+              valueOf: () => controller.notifNews.value,
+              onChanged: controller.setNotifNews,
+            ),
             const _SectionLabel('Library'),
             Obx(() {
               final count = controller.continueWatchingCount;
@@ -111,6 +161,8 @@ class SettingsView extends GetView<SettingsController> {
                 )),
             const SizedBox(height: 24),
           ],
+            ),
+          ),
         ),
       ),
     );
@@ -167,5 +219,39 @@ class _LinkTile extends StatelessWidget {
           size: 18, color: available ? Colors.white54 : Colors.white24),
       onTap: () => onTap(url),
     );
+  }
+}
+
+/// A per-category notification switch that follows the master "All
+/// notifications" toggle — greyed out and forced off when the master is off.
+class _NotifTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final bool Function() valueOf;
+  final ValueChanged<bool> onChanged;
+
+  const _NotifTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.valueOf,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<SettingsController>();
+    return Obx(() {
+      final enabled = controller.notifAll.value;
+      return SwitchListTile(
+        secondary:
+            Icon(icon, color: enabled ? AppTheme.primary : Colors.white24),
+        title: Text(title),
+        subtitle: Text(subtitle),
+        value: enabled && valueOf(),
+        onChanged: enabled ? onChanged : null,
+      );
+    });
   }
 }

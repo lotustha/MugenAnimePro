@@ -2,6 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../core/responsive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/post.dart';
 import '../../data/models/spotlight_item.dart';
@@ -27,7 +28,7 @@ class HomeView extends GetView<HomeController> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AnimeStream'),
+        title: const Text('Mugen Pro'),
         actions: [
           IconButton(
             icon: const Icon(Icons.search),
@@ -49,9 +50,11 @@ class HomeView extends GetView<HomeController> {
         return RefreshIndicator(
           onRefresh: controller.load,
           // CustomScrollView so the "Recently Updated" grid virtualizes as a
-          // real SliverGrid (only on-screen cards build) instead of the old
-          // shrink-wrapped GridView that eager-built every card up front.
-          child: CustomScrollView(
+          // real SliverGrid. MaxWidthBox keeps content from stretching edge-to-
+          // edge on tablets (no-op on phones).
+          child: MaxWidthBox(
+            maxWidth: 1100,
+            child: CustomScrollView(
             slivers: [
               if (controller.spotlight.isNotEmpty)
                 SliverToBoxAdapter(
@@ -89,6 +92,7 @@ class HomeView extends GetView<HomeController> {
               SliverToBoxAdapter(child: _latestWallpapers()),
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
             ],
+            ),
           ),
         );
       }),

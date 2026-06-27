@@ -46,8 +46,12 @@ class _SpotlightCarouselState extends State<SpotlightCarousel> {
 
   @override
   Widget build(BuildContext context) {
+    // Scale the hero with width so it isn't a wide, short band on tablets.
+    // Phones keep ~260; wide screens get a taller, more intentional hero.
+    final width = MediaQuery.sizeOf(context).width;
+    final height = (width * 0.32).clamp(260.0, 360.0);
     return SizedBox(
-      height: 260,
+      height: height,
       child: Stack(
         children: [
           PageView.builder(

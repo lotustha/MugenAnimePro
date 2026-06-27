@@ -8,6 +8,7 @@ import 'package:get/get.dart';
 import '../../core/constants/api_constants.dart';
 import '../../core/notifications/notification_router.dart';
 import 'notification_service.dart';
+import 'storage_service.dart';
 
 /// Top-level FCM background handler. Required to be registered, but does no UI
 /// work: messages that carry a `notification` block are rendered in the system
@@ -27,8 +28,6 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// Subscribes via FCM topics (no per-device targeting needed) and also
 /// registers the device token with the website so it can be targeted directly.
 class PushService extends GetxService {
-  static const _topics = <String>['new_episodes', 'new_posts', 'new_wallpapers'];
-
   final _dio = Dio(BaseOptions(
     connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 10),
@@ -47,11 +46,8 @@ class PushService extends GetxService {
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission(alert: true, badge: true, sound: true);
 
-      // Topic subscriptions — content broadcasts.
-      for (final t in _topics) {
-        await messaging.subscribeToTopic(t);
-      }
-      debugPrint('[push] subscribed to topics: $_topics');
+      // Topic subscriptions — content broadcasts, gated by the user's settings.
+      await applyTopicSubscriptions();
 
       // Device token registration (best-effort).
       final token = await messaging.getToken();
@@ -79,6 +75,82 @@ class PushService extends GetxService {
     return this;
   }
 
+  /// Subscribe/unsubscribe the content-broadcast topics to match the user's
+  /// notification settings (master switch + per-category). Called on init and
+  /// whenever a Settings toggle changes.
+  ///
+  /// Anime new-episode delivery has two modes:
+  ///   • "All"        → the general `new_episodes` broadcast.
+  ///   • "Favourites" → unsubscribe the broadcast and instead subscribe a
+  ///     per-anime topic for each favourite (see [animeTopic]); the server
+  ///     sends each new episode to that topic too, so only favouriters get it.
+  Future<void> applyTopicSubscriptions() async {
+    try {
+      final s = Get.find<StorageService>();
+      final m = FirebaseMessaging.instance;
+      final all = s.notifAll;
+      final episodes = all && s.notifEpisodes;
+      final favOnly = episodes && s.notifEpisodesFavoritesOnly;
+      // Episode topics are scoped to the active provider so you only get alerts
+      // for the API you're currently using. News/wallpapers are website content
+      // (provider-independent) so they stay global.
+      await _setTopic(
+          m, 'new_episodes_${ApiConstants.provider}', episodes && !favOnly);
+      await _setTopic(m, 'new_posts', all && s.notifNews);
+      await _setTopic(m, 'new_wallpapers', all && s.notifWallpapers);
+      // Per-anime favourite topics (current provider): subscribed in faves mode.
+      for (final a in s.favorites) {
+        await _setTopic(m, animeTopic(a.title), favOnly);
+      }
+    } catch (_) {
+      // Offline / Firebase not configured — retried on the next launch.
+    }
+  }
+
+  Future<void> _setTopic(FirebaseMessaging m, String topic, bool on) =>
+      on ? m.subscribeToTopic(topic) : m.unsubscribeFromTopic(topic);
+
+  /// Stable, provider-scoped FCM topic for an anime, derived from its name. The
+  /// website push code MUST sanitize the name the same way to target it:
+  ///   lowercase → non-alphanumerics to `_` → collapse/trim `_` → cap 180 →
+  ///   prefix `anime_<provider>_`. (FCM topics allow `[a-zA-Z0-9-_.~%]`.)
+  static String animeTopic(String name, [String? provider]) {
+    final p = provider ?? ApiConstants.provider;
+    var s = name
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_')
+        .replaceAll(RegExp(r'^_+|_+$'), '');
+    if (s.length > 180) s = s.substring(0, 180);
+    return 'anime_${p}_$s';
+  }
+
+  /// Switching the API provider: drop the previous provider's episode topics
+  /// (so you stop getting its alerts) and re-apply for the new one.
+  Future<void> onProviderChanged(String oldProvider) async {
+    try {
+      final m = FirebaseMessaging.instance;
+      final s = Get.find<StorageService>();
+      await m.unsubscribeFromTopic('new_episodes_$oldProvider');
+      for (final a in s.favoritesFor(oldProvider)) {
+        await m.unsubscribeFromTopic(animeTopic(a.title, oldProvider));
+      }
+    } catch (_) {}
+    await applyTopicSubscriptions();
+  }
+
+  /// Subscribe/unsubscribe a single anime's topic — called when a favourite is
+  /// added/removed (no-op unless episode notifications are in favourites mode).
+  Future<void> syncAnimeTopic(String name, {required bool subscribe}) async {
+    try {
+      final s = Get.find<StorageService>();
+      if (!(s.notifAll && s.notifEpisodes && s.notifEpisodesFavoritesOnly)) {
+        return;
+      }
+      await _setTopic(FirebaseMessaging.instance, animeTopic(name),
+          subscribe);
+    } catch (_) {}
+  }
+
   /// Call once the navigation stack is ready (e.g. RootView first frame).
   void flushInitialMessage() {
     final msg = _initialMessage;
@@ -87,6 +159,11 @@ class PushService extends GetxService {
   }
 
   void _onForeground(RemoteMessage message) {
+    // Respect the master switch (topics are also unsubscribed, but a message may
+    // already be in flight when the user turns notifications off).
+    try {
+      if (!Get.find<StorageService>().notifAll) return;
+    } catch (_) {}
     final data = _dataOf(message);
     debugPrint('[push] foreground message: type=${data['type']} id=${data['id']}');
     final n = message.notification;

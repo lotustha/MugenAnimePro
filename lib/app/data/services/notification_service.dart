@@ -157,6 +157,11 @@ class NotificationService extends GetxService {
 
   Future<void> cancel(String animeId) => _plugin.cancel(id: _idFor(animeId));
 
+  /// Cancel every scheduled reminder (e.g. when notifications are turned off).
+  Future<void> cancelAllReminders() async {
+    if (_ready) await _plugin.cancelAll();
+  }
+
   /// Silence reminders while the user is watching: clears any pending (and
   /// displayed) notifications and blocks new ones until [resume] is called.
   Future<void> suppress() async {
@@ -175,6 +180,12 @@ class NotificationService extends GetxService {
   Future<void> rescheduleAll() async {
     if (!_ready) return;
     final storage = Get.find<StorageService>();
+    // Honour the notification settings: no episode reminders when the master
+    // switch or the episodes category is off.
+    if (!storage.notifAll || !storage.notifEpisodes) {
+      await _plugin.cancelAll();
+      return;
+    }
     final aniList = Get.find<AniListClient>();
     for (final entry in storage.notifyAnime.entries) {
       final malId = int.tryParse(entry.value['malId'] ?? '');

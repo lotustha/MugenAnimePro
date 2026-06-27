@@ -4,6 +4,7 @@ import 'package:get_storage/get_storage.dart';
 import '../../core/constants/api_constants.dart';
 import '../models/anime.dart';
 import '../models/watch_progress.dart';
+import 'push_service.dart';
 
 /// Local persistence backed by GetStorage. Holds favorites, "continue
 /// watching" progress and lightweight user preferences.
@@ -84,13 +85,29 @@ class StorageService extends GetxService {
 
   bool isFavorite(String id) => favorites.any((a) => a.id == id);
 
+  /// Favorites stored under a specific provider's namespace (used to clean up
+  /// that provider's push topics when switching away from it).
+  List<Anime> favoritesFor(String provider) {
+    final raw = (_box.read('favorites_$provider') as List?) ?? const [];
+    return raw
+        .whereType<Map>()
+        .map((e) => Anime.fromJson(Map<String, dynamic>.from(e)))
+        .toList();
+  }
+
   void toggleFavorite(Anime anime) {
-    if (isFavorite(anime.id)) {
-      favorites.removeWhere((a) => a.id == anime.id);
-    } else {
+    final nowFavorite = !isFavorite(anime.id);
+    if (nowFavorite) {
       favorites.insert(0, anime);
+    } else {
+      favorites.removeWhere((a) => a.id == anime.id);
     }
     _box.write(_favoritesKey, favorites.map((a) => a.toJson()).toList());
+    // Keep the per-anime push topic in sync (no-op unless in favourites mode).
+    if (Get.isRegistered<PushService>()) {
+      Get.find<PushService>()
+          .syncAnimeTopic(anime.title, subscribe: nowFavorite);
+    }
   }
 
   // ----------------------------------------------------------------- progress
@@ -209,4 +226,31 @@ class StorageService extends GetxService {
   bool get episodesAscending => _box.read(_episodesAscendingKey) as bool? ?? true;
   set episodesAscending(bool value) =>
       _box.write(_episodesAscendingKey, value);
+
+  // ─────────────────────────────────────────────────── notification prefs
+  // Default ON to match the app's current behaviour (all topics subscribed).
+  static const _notifAllKey = 'notif_all';
+  static const _notifEpisodesKey = 'notif_episodes';
+  static const _notifWallpapersKey = 'notif_wallpapers';
+  static const _notifNewsKey = 'notif_news';
+
+  bool get notifAll => _box.read(_notifAllKey) as bool? ?? true;
+  set notifAll(bool v) => _box.write(_notifAllKey, v);
+
+  bool get notifEpisodes => _box.read(_notifEpisodesKey) as bool? ?? true;
+  set notifEpisodes(bool v) => _box.write(_notifEpisodesKey, v);
+
+  bool get notifWallpapers => _box.read(_notifWallpapersKey) as bool? ?? true;
+  set notifWallpapers(bool v) => _box.write(_notifWallpapersKey, v);
+
+  bool get notifNews => _box.read(_notifNewsKey) as bool? ?? true;
+  set notifNews(bool v) => _box.write(_notifNewsKey, v);
+
+  // Anime episode alerts: favourites-only vs all. Defaults to the requested
+  // rule — no favourites → all; at least one favourite → favourites-only —
+  // until the user sets it explicitly.
+  static const _notifFavOnlyKey = 'notif_episodes_fav_only';
+  bool get notifEpisodesFavoritesOnly =>
+      _box.read(_notifFavOnlyKey) as bool? ?? favorites.isNotEmpty;
+  set notifEpisodesFavoritesOnly(bool v) => _box.write(_notifFavOnlyKey, v);
 }

@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 
 import '../../core/constants/api_constants.dart';
 import '../providers/api_client.dart';
+import 'push_service.dart';
 import 'storage_service.dart';
 
 /// App links (support / socials / website) sourced from Firebase Remote
@@ -131,11 +132,16 @@ class RemoteSettingsService extends GetxService {
     final legacy = rc.getString(_kProvider).trim();
     final p = prefixed.isNotEmpty ? prefixed : legacy;
     if (p.isNotEmpty && p != ApiConstants.provider) {
+      final oldProvider = ApiConstants.provider;
       ApiConstants.provider = p;
       animeProvider.value = p;
       // Swap favorites/history to the new provider's namespace (kept, not wiped).
       if (Get.isRegistered<StorageService>()) {
         Get.find<StorageService>().reloadForProvider();
+      }
+      // Move episode push topics to the new provider (drop the old one's).
+      if (Get.isRegistered<PushService>()) {
+        Get.find<PushService>().onProviderChanged(oldProvider);
       }
     }
   }

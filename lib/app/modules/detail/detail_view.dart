@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../core/constants/app_constants.dart';
+import '../../core/responsive.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/anime.dart';
 import '../../data/models/anime_info.dart';
@@ -10,6 +11,7 @@ import '../category/category_args.dart';
 import '../../widgets/anime_card.dart';
 import '../../widgets/poster_image.dart';
 import '../../widgets/state_views.dart';
+import '../../widgets/support_us_tile.dart';
 import 'detail_controller.dart';
 
 class DetailView extends GetView<DetailController> {
@@ -32,16 +34,18 @@ class DetailView extends GetView<DetailController> {
         }
         return CustomScrollView(
           slivers: [
-            _appBar(context, info),
-            SliverToBoxAdapter(child: _header(info)),
-            SliverToBoxAdapter(child: _actions(context, info)),
-            SliverToBoxAdapter(child: _nextEpisode()),
-            SliverToBoxAdapter(child: _meta(info)),
+            _appBar(context, info), // poster stays full-width
+            SliverToBoxAdapter(child: _centered(_header(info))),
+            SliverToBoxAdapter(child: _centered(_actions(context, info))),
+            SliverToBoxAdapter(child: _centered(_nextEpisode())),
+            SliverToBoxAdapter(child: _centered(_meta(info))),
+            SliverToBoxAdapter(child: _centered(const SupportUsTile())),
             if (info.relations.isNotEmpty)
-              SliverToBoxAdapter(child: _rail('Related', info.relations)),
+              SliverToBoxAdapter(
+                  child: _centered(_rail('Related', info.relations))),
             if (info.recommendations.isNotEmpty)
               SliverToBoxAdapter(
-                  child: _rail('Recommended', info.recommendations)),
+                  child: _centered(_rail('Recommended', info.recommendations))),
             const SliverToBoxAdapter(child: SizedBox(height: 24)),
           ],
         );
@@ -109,21 +113,24 @@ class DetailView extends GetView<DetailController> {
   }
 
   Widget _actions(BuildContext context, AnimeInfo info) {
+    final play = FilledButton.icon(
+      onPressed: controller.resumeOrStart,
+      icon: const Icon(Icons.play_arrow),
+      label: Text(
+        controller.resumeEpisodeNumber != null
+            ? 'Resume E${controller.resumeEpisodeNumber}'
+            : 'Play',
+      ),
+    );
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 6),
       child: Row(
         children: [
-          Expanded(
-            child: FilledButton.icon(
-              onPressed: controller.resumeOrStart,
-              icon: const Icon(Icons.play_arrow),
-              label: Text(
-                controller.resumeEpisodeNumber != null
-                    ? 'Resume E${controller.resumeEpisodeNumber}'
-                    : 'Play',
-              ),
-            ),
-          ),
+          // Full-width on phones; a sensible fixed size on tablets so it isn't
+          // a giant stretched bar.
+          context.isTabletLayout
+              ? SizedBox(width: 260, child: play)
+              : Expanded(child: play),
           const SizedBox(width: 10),
           Obx(() {
             controller.info.value; // react to favorite refresh
@@ -268,6 +275,15 @@ class DetailView extends GetView<DetailController> {
       ],
     );
   }
+
+  /// Centre + cap content width so sections don't stretch edge-to-edge on
+  /// tablets/large screens (no-op on phones, where width < 820).
+  static Widget _centered(Widget child) => Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 820),
+          child: child,
+        ),
+      );
 
   Widget _tag(String text) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),

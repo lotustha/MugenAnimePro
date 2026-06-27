@@ -68,7 +68,7 @@ class AnimeStreamApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return GetMaterialApp(
-      title: 'AnimeStream',
+      title: 'Mugen Pro',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.dark,
       themeMode: ThemeMode.dark,

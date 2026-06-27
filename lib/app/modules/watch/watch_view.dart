@@ -6,6 +6,7 @@ import 'package:get/get.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/episode.dart';
 import '../../widgets/state_views.dart';
+import '../../widgets/support_us_tile.dart';
 import 'watch_controller.dart';
 
 class WatchView extends GetView<WatchController> {
@@ -37,30 +38,48 @@ class WatchView extends GetView<WatchController> {
       child: Scaffold(
         backgroundColor: AppTheme.background,
         body: SafeArea(
-          // Keep a single, structurally stable layout across rotation. Swapping
-          // structure (e.g. Column→Row) on rotation would remount the player's
-          // platform-view WebView, disposing the native WebView that owns the
-          // fullscreen video surface mid-fullscreen → frozen landscape. So the
-          // tree shape is identical in both orientations; only the player height
-          // changes. Cap it to the available height so a full-width 16:9 player
-          // can't overflow the Column in landscape (where it's covered by the
-          // native fullscreen view anyway).
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final playerHeight =
-                  (constraints.maxWidth * 9 / 16).clamp(0.0, constraints.maxHeight);
-              return Column(
+          child: Builder(builder: (context) {
+            // Tablets (shortestSide ≥ 600dp) show player + episode list side by
+            // side. The layout class is fixed per device — it never swaps on
+            // rotation — so the player's platform-view WebView is never
+            // remounted (that swap is exactly what froze fullscreen before).
+            // Phones keep the stable single column.
+            if (MediaQuery.sizeOf(context).shortestSide >= 600) {
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  SizedBox(
-                    width: constraints.maxWidth,
-                    height: playerHeight,
-                    child: _player(),
+                  Expanded(
+                    flex: 3,
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      child:
+                          AspectRatio(aspectRatio: 16 / 9, child: _player()),
+                    ),
                   ),
-                  Expanded(child: _details()),
+                  Expanded(flex: 2, child: _details()),
                 ],
               );
-            },
-          ),
+            }
+            // Phone: single, structurally stable column. The 16:9 player height
+            // is capped to the available height so it can't overflow in
+            // landscape (where the native fullscreen view covers it anyway).
+            return LayoutBuilder(
+              builder: (context, constraints) {
+                final playerHeight = (constraints.maxWidth * 9 / 16)
+                    .clamp(0.0, constraints.maxHeight);
+                return Column(
+                  children: [
+                    SizedBox(
+                      width: constraints.maxWidth,
+                      height: playerHeight,
+                      child: _player(),
+                    ),
+                    Expanded(child: _details()),
+                  ],
+                );
+              },
+            );
+          }),
         ),
         ),
     );
@@ -72,7 +91,7 @@ class WatchView extends GetView<WatchController> {
   /// nav, language, server, episodes bar) followed by the episodes, so only the
   /// rows on screen are built — long series (e.g. One Piece) no longer lag.
   Widget _details() {
-    const headerCount = 6;
+    const headerCount = 7;
     return Obx(() {
       final eps = controller.visibleEpisodes; // tracks query + sort
       final currentId = controller.current.value?.id; // tracks current
@@ -96,6 +115,8 @@ class WatchView extends GetView<WatchController> {
             case 4:
               return const Divider(height: 1);
             case 5:
+              return const SupportUsTile();
+            case 6:
               return _episodesBar(eps.length);
           }
           final listIndex = i - headerCount;
